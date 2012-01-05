@@ -1,0 +1,9 @@
+# django-checkout README
+
+An app for creating a checkout process for any product(s) (or other object(s) with a monetary value) on your site.
+
+Currently it requires django-cart (a very simple and useful cart app) but that will soon be optional.
+
+# Install and usage
+
+Documentation coming soon
