@@ -1,17 +1,12 @@
 import logging
 
 from django.conf import settings
-from django.contrib.auth import authenticate
-from django.contrib.auth.models import User
-from django.contrib.localflavor.us.forms import USPhoneNumberField, USStateSelect, USZipCodeField
-from django.utils.translation import ugettext_lazy as _, ugettext
-from django.template import loader, Context
+from django.utils.translation import ugettext_lazy as _
 
 import braintree
 
 logger = logging.getLogger("checkout.processors.braintree_processor")
 
- 
 # Configure Braintree
 braintree.Configuration.configure(
     braintree.Environment.Production if settings.IS_PROD else braintree.Environment.Sandbox,
@@ -19,6 +14,7 @@ braintree.Configuration.configure(
     settings.BRAINTREE_PUBLIC_KEY,
     settings.BRAINTREE_PRIVATE_KEY
 )
+
 
 class Processor:
 
@@ -30,7 +26,7 @@ class Processor:
     def create_customer(self, data):
 
         # expiration date is date due to different formatting requirements
-        formatted_expire_date = data.get("expiration_date").strftime("%m/%Y") 
+        formatted_expire_date = data.get("expiration_date").strftime("%m/%Y")
 
         try:
             result = braintree.Customer.create({
@@ -56,25 +52,25 @@ class Processor:
         except:
             result = {
                 "is_success": False,
-                "message": "An exception occurred while creating the customer record"
+                "message": _("An exception occurred while creating the customer record")
             }
         return result
 
     def handle_billing_info(self, data, customer_id=None, payment_token=None, **kwargs):
-        
+
         #default response items
         success = False
         result = None
         error = None
-        
+
         # expiration date is date due to different formatting requirements
         formatted_expire_date = data.get("expiration_date").strftime("%m/%Y")
-        
+
         if data.get("customer_id"):
             customer_id = data.get("customer_id")
-            
+
         if data.get("payment_token"):
-            payment_token = data.get("payment_token")           
+            payment_token = data.get("payment_token")
 
         if customer_id:
             if payment_token:
@@ -125,7 +121,7 @@ class Processor:
                         }
                     }
                 })
-                
+
             """elif billing_profile.payment_token:
                 result = braintree.CreditCard.update(billing_profile.payment_token, {
                     "cardholder_name": "%s %s" % (data["billing_first_name"], data["billing_last_name"]),
@@ -144,11 +140,10 @@ class Processor:
                         }
                 })
             """
-                
-        
+
             if result and not result.is_success:
                 # nullify the result to force a normal transaction
-                result = None       
+                result = None
 
         if not result:
             # store transaction info in braintree
@@ -181,12 +176,11 @@ class Processor:
                     "store_in_vault": True,
                     "add_billing_address_to_payment_method": True,
                 }
-            })     
-
+            })
 
         if result:
             success = result.is_success
-            if not success: # this will be from the Transaction class, not Customer
+            if not success:  # this will be from the Transaction class, not Customer
                 error = result.message
                 logger.warning("Payment profile save failed for {0} {1} ({2})".format(
                     data.get("billing_first_name"), data.get("billing_last_name"), error
@@ -195,13 +189,12 @@ class Processor:
             else:
                 reference_id = result.transaction.id
 
-        
         return success, reference_id, error, result
-
 
     def submit_for_settlement(self, order_id, amount=None, data=None, reference_id=None):
 
         result = None
+        formatted_expire_date = data.get("expiration_date").strftime("%m/%Y")
 
         if reference_id:
             result = braintree.Transaction.submit_for_settlement(reference_id)
@@ -215,7 +208,7 @@ class Processor:
                     "cvv": data["ccv"],
                 },
                 "customer": {
-                    "email": data["email"],  
+                    "email": data["email"],
                 },
                 "options": {
                     "submit_for_settlement": True
@@ -226,9 +219,8 @@ class Processor:
             if not result.is_success:
                 return False, result.message
             return True, result
-        
-        return False, "No transaction id or data provided"
 
+        return False, "No transaction id or data provided"
 
     def refund(self, reference_id, amount=None):
         transaction = braintree.Transaction.find(reference_id)
@@ -240,12 +232,11 @@ class Processor:
 
             if not result.is_success:
                 errors = result.errors.deep_errors
-        
+
             return result.is_success or False, errors
-        
+
         return False, "Transaction could not be found"
 
-    
     def void(self, reference_id):
         result = braintree.Transaction.void(reference_id)
 
@@ -253,4 +244,3 @@ class Processor:
             errors = result.errors.deep_errors
 
         return result.is_success or False, errors
-

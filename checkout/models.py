@@ -1,11 +1,11 @@
 from datetime import datetime
 from decimal import Decimal
 
+from django.conf import settings
 from django.db import models
-from django.utils.translation import ugettext, ugettext_lazy as _
+from django.utils.translation import ugettext_lazy as _
 
 from django.contrib.contenttypes.models import ContentType
-from django.contrib.contenttypes import generic
 from django.contrib.auth.models import User
 
 from checkout.fields import CurrencyField
@@ -31,9 +31,9 @@ class OrderManager(models.Manager):
     def canceled(self):
         return super(OrderManager, self).get_query_set().filter(status=Order.CANCELED)
 
-		
+
 class Order(models.Model):
-    
+
     INCOMPLETE = "incomplete"
     PENDING_PAYMENT = "pending payment"
     COMPLETE = "complete"
@@ -63,7 +63,6 @@ class Order(models.Model):
 
     objects = OrderManager()
 
-
     def __unicode__(self):
         if self.user:
             return "Order #{0}: {1}".format(self.id, self.user.get_full_name())
@@ -79,6 +78,12 @@ class Order(models.Model):
             self.time_stamp = datetime.now()
 
         super(Order, self).save(*args, **kwargs)
+
+    def successful_transaction(self):
+        try:
+            return self.transactions.get(status=OrderTransaction.COMPLETE)
+        except:
+            return None
 
     class Meta:
         get_latest_by = "creation_date"
@@ -147,13 +152,21 @@ class OrderTransaction(models.Model):
     VOIDED = "voided"
     REFUNDED = "refunded"
 
+    METHOD_CHOICES = getattr(settings, "CHECKOUT_PAYMENT_METHOD_CHOICES", (
+        (1, "Credit/Debit"),
+        (2, "Check"),
+        (3, "Discount/Gift Certificate")
+    ))
+
     order = models.ForeignKey(Order, related_name="transactions")
 
     creation_date = models.DateTimeField()
     status = models.CharField(max_length=20)
 
+    payment_method = models.IntegerField(choices=METHOD_CHOICES, default=1)
     description = models.CharField(max_length=100, blank=True)
     amount = CurrencyField(max_digits=18, decimal_places=10, blank=True, null=True)
+
     last_four = models.CharField(max_length=4, blank=True, null=True)
     reference_number = models.CharField(max_length=32, blank=True, null=True)
     details = models.CharField(max_length=250, blank=True, null=True)
@@ -213,13 +226,12 @@ class Discount(models.Model):
         return Order.objects.filter(discount_code=self.code)
 
     class Meta:
-        ordering = ("active_date","expire_date","code")
+        ordering = ("active_date", "expire_date", "code")
 
 
 class Referral(models.Model):
-	order = models.ForeignKey(Order)
-	source = models.CharField(max_length=100)
-	
-	def __unicode__(self):
-		return u'Referral: %s' % self.source
+    order = models.ForeignKey(Order)
+    source = models.CharField(max_length=100)
 
+    def __unicode__(self):
+        return u'Referral: %s' % self.source

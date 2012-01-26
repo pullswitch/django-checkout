@@ -8,7 +8,7 @@ from django.utils.translation import ugettext_lazy as _
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 
-from cart.cart import Cart, CART_ID
+from cart.cart import CART_ID
 from cart.models import Cart as CartModel
 
 from checkout.models import Discount, Order as OrderModel, OrderTransaction
@@ -19,16 +19,16 @@ from checkout.signals import (pre_handle_billing_info, post_handle_billing_info,
 
 payment_module = import_module(getattr(settings, "CHECKOUT_PAYMENT_PROCESSOR", "checkout.processors.braintree_processor"))
 SignupForm = import_module(
-    getattr(settings, 
+    getattr(settings,
         "CHECKOUT_SIGNUP_FORM",
         "checkout.forms.CheckoutSignupForm"
     )
 )
 
 
-def info(request, 
-    payment_form_class=PaymentProfileForm, 
-    signup_form_class=SignupForm, 
+def info(request,
+    payment_form_class=PaymentProfileForm,
+    signup_form_class=SignupForm,
     empty_cart_url="cart"):
 
     # Look for cart in session
@@ -46,13 +46,13 @@ def info(request,
             order = OrderModel.objects.get(user=request.session[ORDER_ID])
         except OrderModel.DoesNotExist:
             del request.session[ORDER_ID]
-            
+
     if not order:
         try:
             order = OrderModel.objects.incomplete().get(user=request.user)
         except:
             pass
-        
+
     # be helpful and look for stored billing data to autopop with
     if order and order.transactions.count():
         billing_data = order.transactions.latest()
@@ -75,7 +75,7 @@ def info(request,
                 form.login(request, user)
                 # grab payment form class
                 form = payment_form_class()
-                
+
             else:
                 # convert cart to order
                 order = Order(request)
@@ -109,15 +109,19 @@ def info(request,
                     "last_name": request.user.last_name,
                 })
 
-                pre_handle_billing_info.send(sender=self, user=request.user, payment_data=payment_data)
-                
+                pre_handle_billing_info.send(
+                    sender=None,
+                    user=request.user,
+                    payment_data=payment_data
+                )
+
                 success, reference_id, error, results = pp.handle_billing_info(
                     payment_data, amount=order.get_total()
                 )
 
                 post_handle_billing_info.send(
-                    sender=self, 
-                    user=request.user, 
+                    sender=None,
+                    user=request.user,
                     success=success,
                     reference_id=reference_id,
                     error=error,
@@ -127,18 +131,18 @@ def info(request,
                 if success:
 
                     OrderTransaction.objects.create(
-                        order = order.order,
-                        amount = order.get_total(),
-                        last_four = form.cleaned_data["card_number"][-4:],
-                        reference_number = reference_id,
-                        billing_first_name = form.cleaned_data["billing_first_name"],
-                        billing_last_name = form.cleaned_data["billing_last_name"],
-                        billing_address1 = form.cleaned_data["address1"],
-                        billing_address2 = form.cleaned_data["address2"],                    
-                        billing_city = form.cleaned_data["city"],
-                        billing_region = form.cleaned_data["region"],
-                        billing_postal_code = form.cleaned_data["postal_code"],
-                        billing_country = form.cleaned_data["country"],
+                        order=order.order,
+                        amount=order.get_total(),
+                        last_four=form.cleaned_data["card_number"][-4:],
+                        reference_number=reference_id,
+                        billing_first_name=form.cleaned_data["billing_first_name"],
+                        billing_last_name=form.cleaned_data["billing_last_name"],
+                        billing_address1=form.cleaned_data["address1"],
+                        billing_address2=form.cleaned_data["address2"],
+                        billing_city=form.cleaned_data["city"],
+                        billing_region=form.cleaned_data["region"],
+                        billing_postal_code=form.cleaned_data["postal_code"],
+                        billing_country=form.cleaned_data["country"],
                     )
 
                     order.update_totals()
@@ -147,7 +151,7 @@ def info(request,
                     return redirect("checkout_confirm")
 
                 else:
-                    form._errors.update({"__all__": [error,]})
+                    form._errors.update({"__all__": [error, ]})
     else:
         form = Form()
         if request.user.is_authenticated():
@@ -177,7 +181,11 @@ def confirm(request):
 
         pp = payment_module.Processor()
 
-        pre_submit_for_settlement.send(sender=self, order=order, transaction=transaction)
+        pre_submit_for_settlement.send(
+            sender=None,
+            order=order,
+            transaction=transaction
+        )
 
         success, data = pp.submit_for_settlement(order, reference_id=transaction.reference_number)
 
@@ -191,17 +199,17 @@ def confirm(request):
         transaction.save()
 
         post_submit_for_settlement.send(
-            sender=self, 
-            order=order, 
-            transaction=transaction, 
-            success=success, 
+            sender=None,
+            order=order,
+            transaction=transaction,
+            success=success,
             data=data
         )
 
         if success:
             order.status = OrderModel.COMPLETE
             order.save()
-            messages.add_message(request, messages.SUCCESS, "Your order was successful. Thanks for your business!")                  
+            messages.add_message(request, messages.SUCCESS, _("Your order was successful. Thanks for your business!"))
 
             return redirect("checkout_order_details", [order.pk])
         else:
@@ -219,9 +227,8 @@ def confirm(request):
 def order_list(request, **kwargs):
 
     template_name = kwargs.pop("template_name", "checkout/order_list.html")
-
     orders = OrderModel.objects.filter(user=request.user).order_by('-creation_date')
-        
+
     return render_to_response(template_name, {
         "orders": orders,
     }, context_instance=RequestContext(request))
@@ -231,7 +238,6 @@ def order_list(request, **kwargs):
 def order_details(request, pk, **kwargs):
 
     template_name = kwargs.pop("template_name", "checkout/order_detail.html")
-
     order = get_object_or_404(request.user.orders, pk=pk)
     transaction = order.transactions.latest()
 
@@ -239,4 +245,3 @@ def order_details(request, pk, **kwargs):
         "order": order,
         "transaction": transaction
     }, context_instance=RequestContext(request))
-
