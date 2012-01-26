@@ -1,3 +1,1 @@
-import logging
-
-log = logging.getLogger('shop')
+__version__ = "0.1.0"
