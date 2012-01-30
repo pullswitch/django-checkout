@@ -2,7 +2,6 @@ import random
 
 from django import forms
 from django.conf import settings
-from django.utils.importlib import import_module
 from django.utils.translation import ugettext as _
 
 from django.contrib.auth.models import User
@@ -12,15 +11,12 @@ from uni_form.helpers import FormHelper, Layout, Fieldset, Row, Submit
 
 from checkout.fields import CreditCardField, ExpiryDateField, VerificationValueField
 from checkout.models import Discount
+from checkout.utils import import_from_string
 
-signup_form = getattr(settings,
+BaseSignupForm = import_from_string(getattr(settings,
     "CHECKOUT_BASE_SIGNUP_FORM",
     "django.contrib.auth.forms.UserCreationForm"
-)
-form_module = import_module(
-    ".".join(signup_form.split(".")[:-1])
-)
-BaseSignupForm = getattr(form_module, signup_form.split(".")[-1])
+))
 
 
 class PaymentProfileForm(forms.Form):

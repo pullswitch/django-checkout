@@ -16,9 +16,10 @@ from checkout.order import Order, ORDER_ID, LineItemAlreadyExists
 from checkout.forms import PaymentProfileForm
 from checkout.signals import (pre_handle_billing_info, post_handle_billing_info,
                         pre_submit_for_settlement, post_submit_for_settlement)
+from checkout.utils import import_from_string
 
 payment_module = import_module(getattr(settings, "CHECKOUT_PAYMENT_PROCESSOR", "checkout.processors.braintree_processor"))
-SignupForm = import_module(
+SignupForm = import_from_string(
     getattr(settings,
         "CHECKOUT_SIGNUP_FORM",
         "checkout.forms.CheckoutSignupForm"
