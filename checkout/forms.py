@@ -1,6 +1,11 @@
+import random
+
 from django import forms
 from django.conf import settings
+from django.utils.importlib import import_module
 from django.utils.translation import ugettext as _
+
+from django.contrib.auth.models import User
 
 from django_countries.countries import COUNTRIES
 from uni_form.helpers import FormHelper, Layout, Fieldset, Row, Submit
@@ -8,12 +13,14 @@ from uni_form.helpers import FormHelper, Layout, Fieldset, Row, Submit
 from checkout.fields import CreditCardField, ExpiryDateField, VerificationValueField
 from checkout.models import Discount
 
-BaseSignupForm = import_module(
-    getattr(settings, 
-        "CHECKOUT_BASE_SIGNUP_FORM", 
-        "django.contrib.auth.forms.UserCreationForm"
-    )
+signup_form = getattr(settings,
+    "CHECKOUT_BASE_SIGNUP_FORM",
+    "django.contrib.auth.forms.UserCreationForm"
 )
+form_module = import_module(
+    ".".join(signup_form.split(".")[:-1])
+)
+BaseSignupForm = getattr(form_module, signup_form.split(".")[-1])
 
 
 class PaymentProfileForm(forms.Form):
@@ -35,19 +42,19 @@ class PaymentProfileForm(forms.Form):
     phone_number = forms.CharField(max_length=30)
 
     discount_code = forms.CharField(max_length=20, required=False)
-    
+
     helper = FormHelper()
-    
+
     layout = Layout(
         Fieldset("Payment",
             "card_number",
-            Row("ccv","expiration_date"),
+            Row("ccv", "expiration_date"),
         ),
         Fieldset("Billing Address",
-            Row("billing_first_name","billing_last_name"),
+            Row("billing_first_name", "billing_last_name"),
             "address1",
             "address2",
-            Row("city","region","postal_code"),
+            Row("city", "region", "postal_code"),
             Row("country", "phone_number")
         ),
         Fieldset("",
@@ -55,7 +62,7 @@ class PaymentProfileForm(forms.Form):
         )
     )
     helper.add_layout(layout)
-    submit = Submit("save-button","Continue")
+    submit = Submit("save-button", "Continue")
     helper.add_input(submit)
 
     def __init__(self, *args, **kwargs):
@@ -69,7 +76,7 @@ class PaymentProfileForm(forms.Form):
             discount = Discount.objects.filter(code__iexact=code)
             if not discount.count() or not discount[0].valid:
                 raise forms.ValidationError("This is not a valid discount code")
-        
+
         return code
 
     def customize_submit_button(self, id, text):
@@ -83,7 +90,7 @@ class CheckoutSignupForm(BaseSignupForm):
     last_name = forms.CharField()
 
     def __init__(self, *args, **kwargs):
-        super(SignupForm, self).__init__(*args, **kwargs)
+        super(CheckoutSignupForm, self).__init__(*args, **kwargs)
         del self.fields["username"]
         self.fields.keyOrder = [
             "first_name",
@@ -103,8 +110,8 @@ class CheckoutSignupForm(BaseSignupForm):
                     User.objects.get(username=username)
                 except User.DoesNotExist:
                     break
-        return super(SignupForm, self).create_user(username, commit=commit)
-    
+        return super(CheckoutSignupForm, self).create_user(username, commit=commit)
+
     def generate_username(self, email):
         """
         auth.User requires an unique username so we need to make one up.
@@ -113,7 +120,7 @@ class CheckoutSignupForm(BaseSignupForm):
         # do not ask
         n = random.randint(1, (10 ** (5 - 1)) - 1)
         return "%s%d" % (h, n)
-    
+
     def after_signup(self, new_user):
         new_user.first_name = self.cleaned_data.get("first_name")
         new_user.last_name = self.cleaned_data.get("last_name")
@@ -129,7 +136,7 @@ class CheckoutSignupForm(BaseSignupForm):
     helper = FormHelper()
 
     layout = Layout(
-        Fieldset("Create Your Account", 
+        Fieldset("Create Your Account",
             "first_name",
             "last_name",
             "email",
@@ -137,8 +144,5 @@ class CheckoutSignupForm(BaseSignupForm):
         ),
     )
     helper.add_layout(layout)
-    submit = Submit("save-button","Create and Continue")
+    submit = Submit("save-button", "Create and Continue")
     helper.add_input(submit)
-
-
-        
