@@ -59,7 +59,7 @@ class Processor:
     def get_payment_details(self, payment_token):
         try:
             return braintree.CreditCard.find(payment_token)
-        except braintree.NotFoundError:
+        except:
             return None
 
     def handle_billing_info(self, data, customer_id=None, payment_token=None, **kwargs):
