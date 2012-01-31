@@ -56,6 +56,10 @@ class Processor:
             }
         return result
 
+    def get_payment_details(self, payment_token):
+
+        return braintree.CreditCard.find(payment_token)
+
     def handle_billing_info(self, data, customer_id=None, payment_token=None, **kwargs):
 
         #default response items
