@@ -62,6 +62,9 @@ class Processor:
         except:
             return None
 
+    def get_subscription(self, subscription_id):
+        return braintree.Subscription.find(subscription_id)
+
     def handle_billing_info(self, data, customer_id=None, payment_token=None, **kwargs):
 
         #default response items
@@ -197,7 +200,7 @@ class Processor:
 
         return success, reference_id, error, result
 
-    def submit_for_settlement(self, order_id, amount=None, data=None, reference_id=None):
+    def submit_for_settlement(self, amount=None, data=None, reference_id=None):
 
         result = None
         formatted_expire_date = data.get("expiration_date").strftime("%m/%Y")
@@ -222,11 +225,17 @@ class Processor:
             })
 
         if result:
-            if not result.is_success:
-                return False, result.message
-            return True, result
+            return result.is_success, result
 
         return False, "No transaction id or data provided"
+
+    def sale(self, amount, customer_id, payment_method_token):
+        result = braintree.Transaction.sale(
+            amount=amount,
+            customer_id=customer_id,
+            payment_method_token=payment_method_token
+        )
+        return result
 
     def refund(self, reference_id, amount=None):
         transaction = braintree.Transaction.find(reference_id)
@@ -250,3 +259,8 @@ class Processor:
             errors = result.errors.deep_errors
 
         return result.is_success or False, errors
+
+    def extend_subscription(self, subscription_id, amount, discount_code, billing_cycles=1):
+        sub = braintree.Subscription.find(subscription_id)
+        if sub.discounts:
+            sub.discounts.find(discount_code)
