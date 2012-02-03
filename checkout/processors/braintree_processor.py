@@ -1,4 +1,5 @@
 import logging
+from decimal import Decimal
 
 from django.conf import settings
 from django.utils.translation import ugettext_lazy as _
@@ -262,5 +263,30 @@ class Processor:
 
     def extend_subscription(self, subscription_id, amount, discount_code, billing_cycles=1):
         sub = braintree.Subscription.find(subscription_id)
-        if sub.discounts:
-            sub.discounts.find(discount_code)
+        if not sub.discounts:
+            braintree.Subscription.update(subscription_id, {
+                "price": amount,
+                "discounts": {
+                    "add": [
+                        {
+                            "inherited_from_id": discount_code,
+                            "amount": Decimal(amount),
+                            "number_of_billing_cycles": 1,
+                            "quantity": 1
+                        }
+                    ]
+                }
+            })
+        else:
+            braintree.Subscription.update(subscription_id, {
+                "price": amount,
+                "discounts": {
+                    "update": [
+                        {
+                            "existing_id": discount_code,
+                            "amount": Decimal(amount),
+                            "quantity": 2
+                        }
+                    ]
+                }
+            })
