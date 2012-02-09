@@ -152,10 +152,14 @@ class OrderTransaction(models.Model):
     VOIDED = "voided"
     REFUNDED = "refunded"
 
+    CREDIT = 1
+    CHECK = 2
+    DISCOUNT = 3
+
     METHOD_CHOICES = getattr(settings, "CHECKOUT_PAYMENT_METHOD_CHOICES", (
-        (1, "Credit/Debit"),
-        (2, "Check"),
-        (3, "Discount/Gift Certificate")
+        (CREDIT, "Credit/Debit"),
+        (CHECK, "Check"),
+        (DISCOUNT, "Discount/Gift Certificate")
     ))
 
     order = models.ForeignKey(Order, related_name="transactions")

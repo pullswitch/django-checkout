@@ -204,12 +204,12 @@ class Processor:
     def submit_for_settlement(self, amount=None, data=None, reference_id=None):
 
         result = None
-        formatted_expire_date = data.get("expiration_date").strftime("%m/%Y")
 
         if reference_id:
             result = braintree.Transaction.submit_for_settlement(reference_id)
 
         elif data:
+            formatted_expire_date = data.get("expiration_date").strftime("%m/%Y")
             result = braintree.Transaction.sale({
                 "amount": amount or data.get("amount"),
                 "credit_card": {
@@ -231,11 +231,11 @@ class Processor:
         return False, "No transaction id or data provided"
 
     def sale(self, amount, customer_id, payment_method_token):
-        result = braintree.Transaction.sale(
-            amount=amount,
-            customer_id=customer_id,
-            payment_method_token=payment_method_token
-        )
+        result = braintree.Transaction.sale({
+            "amount": amount,
+            "customer_id": customer_id,
+            "payment_method_token": payment_method_token
+        })
         return result
 
     def refund(self, reference_id, amount=None):
