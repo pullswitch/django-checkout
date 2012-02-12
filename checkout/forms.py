@@ -1,4 +1,5 @@
 import random
+from decimal import Decimal
 
 from django import forms
 from django.conf import settings
@@ -17,6 +18,23 @@ BaseSignupForm = import_from_string(getattr(settings,
     "CHECKOUT_BASE_SIGNUP_FORM",
     "django.contrib.auth.forms.UserCreationForm"
 ))
+
+
+class CustomItemForm(forms.Form):
+
+    item_description = forms.CharField(max_length=250)
+    item_amount = forms.CharField(max_length=5)
+    taxable = forms.BooleanField(initial=False, required=False)
+    allow_discounts = forms.BooleanField(initial=True, required=False)
+
+    def taxable(self):
+        return self.cleaned_data.get("taxable", False)
+
+    def tax(self):
+        return Decimal(self.cleaned_data["item_amount"]) * Decimal(getattr(settings, "CHECKOUT_TAX_RATE", .08))
+
+    def total(self):
+        return Decimal(self.cleaned_data["item_amount"]) + self.tax()
 
 
 class PaymentProfileForm(forms.Form):
@@ -58,8 +76,6 @@ class PaymentProfileForm(forms.Form):
         )
     )
     helper.add_layout(layout)
-    submit = Submit("save-button", "Continue")
-    helper.add_input(submit)
 
     def __init__(self, *args, **kwargs):
         super(PaymentProfileForm, self).__init__(*args, **kwargs)

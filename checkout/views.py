@@ -13,7 +13,7 @@ from cart.models import Cart as CartModel
 
 from checkout.models import Discount, Order as OrderModel, OrderTransaction
 from checkout.order import Order, ORDER_ID, LineItemAlreadyExists
-from checkout.forms import PaymentProfileForm
+from checkout.forms import CustomItemForm, PaymentProfileForm
 from checkout.signals import (pre_handle_billing_info, post_handle_billing_info,
                         pre_submit_for_settlement, post_submit_for_settlement)
 from checkout.utils import import_from_string
@@ -30,37 +30,65 @@ SignupForm = import_from_string(
 def info(request,
     payment_form_class=PaymentProfileForm,
     signup_form_class=SignupForm,
-    empty_cart_url="cart"):
+    empty_cart_url="cart", **kwargs):
 
-    # Look for cart in session
-    # The cart remains active until order is completed
-    try:
-        cart = CartModel.objects.get(pk=request.session[CART_ID])
-    except:
-        cart = None
+    template_name = kwargs.get("template_name", "checkout/form.html")
 
-    # Look for an order in process
-    order = None
+    checkout_summary = {
+        "method": "cart",
+        "items": [],
+        "tax": 0,
+        "total": 0
+    }
+
     billing_data = None
-    if request.session.get(ORDER_ID):
-        try:
-            order = OrderModel.objects.get(user=request.session[ORDER_ID])
-        except OrderModel.DoesNotExist:
-            del request.session[ORDER_ID]
+    if request.method == "POST" and (
+        request.POST.get("item_description") or request.POST.get("custom_confirm")
+        ):
+        checkout_summary["method"] = "custom"
+        custom_form = CustomItemForm(request.POST)
+        order = None
+        if custom_form.is_valid():
+            checkout_summary["items"].append({
+                "description": custom_form.cleaned_data["item_description"],
+                "amount": custom_form.cleaned_data["item_amount"],
+                "attributes": custom_form.cleaned_data["item_attributes"]
+            })
+            checkout_summary["tax"] = custom_form.tax()
+            checkout_summary["total"] = custom_form.total()
 
-    if not order:
+    if checkout_summary["method"] == "cart":
+        # Look for cart in session
+        # The cart remains active until order is completed
         try:
-            order = OrderModel.objects.incomplete().get(user=request.user)
+            cart = CartModel.objects.get(pk=request.session[CART_ID])
+            checkout_summary["items"] = cart.item_set.all()
+            checkout_summary["total"] = cart.total
         except:
-            pass
+            cart = None
 
-    # be helpful and look for stored billing data to autopop with
-    if order and order.transactions.count():
-        billing_data = order.transactions.latest()
+        # Look for an order in process
+        order = None
 
-    # No cart and no order == cya
-    if not order and (not cart or not cart.item_set.count()):
-        return redirect(empty_cart_url)
+        if request.session.get(ORDER_ID):
+            try:
+                order = OrderModel.objects.get(user=request.session[ORDER_ID])
+            except OrderModel.DoesNotExist:
+                del request.session[ORDER_ID]
+
+        if not order:
+            try:
+                order = OrderModel.objects.incomplete().get(user=request.user)
+            except:
+                pass
+
+        # be helpful and look for stored billing data to autopop with
+        if order and order.transactions.count():
+            billing_data = order.transactions.latest()
+
+        # No cart and no order == cya
+        if not order and (not cart or not cart.item_set.count()):
+            return redirect(empty_cart_url)
 
     if not request.user.is_authenticated():
         # @@ to do: if combo_form_class == None, use login_required approach
@@ -68,7 +96,9 @@ def info(request,
     else:
         Form = payment_form_class
 
-    if request.method == "POST":
+    if request.method == "POST" and (
+        checkout_summary["method"] == "cart" or request.POST.get("custom_confirm")
+    ):
         form = Form(request.POST)
         if form.is_valid():
             if not request.user.is_authenticated():
@@ -78,7 +108,7 @@ def info(request,
                 form = payment_form_class()
 
             else:
-                # convert cart to order
+                # create order instance
                 order = Order(request)
                 request.session[ORDER_ID] = order.order.id
 
@@ -92,11 +122,13 @@ def info(request,
                         item.delete()
                     abandoned.delete()
 
-                for item in cart.item_set.all():
+                for item in checkout_summary["items"]:
                     try:
-                        order.add(item.product, item.unit_price, item.attributes)
+                        order.add(item.unit_price, product=item.product, attributes=item.attributes)
                     except LineItemAlreadyExists:
                         pass
+                    except AttributeError:
+                        order.add(item["amount"], attributes=item["attributes"], description=item["description"])
 
                 if form.cleaned_data.get("discount_code"):
                     order.apply_discount(code=form.cleaned_data["discount_code"])
@@ -164,9 +196,9 @@ def info(request,
                 form.fields["billing_first_name"].initial = request.user.first_name
                 form.fields["billing_last_name"].initial = request.user.last_name
 
-    return render_to_response("checkout/form.html", {
+    return render_to_response(template_name, {
         "form": form,
-        "cart": cart,
+        "checkout_summary": checkout_summary,
         "order": order
     }, context_instance=RequestContext(request))
 

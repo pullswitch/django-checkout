@@ -3,11 +3,14 @@ import models
 
 ORDER_ID = 'ORDER-ID'
 
+
 class LineItemAlreadyExists(Exception):
     pass
 
+
 class LineItemDoesNotExist(Exception):
     pass
+
 
 class Order:
     def __init__(self, request):
@@ -21,7 +24,7 @@ class Order:
         if not order and request.user.is_authenticated():
             if request.user.orders.incomplete().count():
                 order = request.user.orders.incomplete().latest()
-            
+
         if not order:
             order = self.new(request)
 
@@ -39,7 +42,7 @@ class Order:
 
     def new(self, request):
         order = models.Order(
-            creation_date=datetime.datetime.now(), 
+            creation_date=datetime.datetime.now(),
             status=models.Order.INCOMPLETE
         )
         if request.user.is_authenticated():
@@ -49,7 +52,7 @@ class Order:
         # @@ send signal with order id and request for further actions
         return order
 
-    def add(self, product, item_price, attributes="", item_tax=0, quantity=1, description=""):
+    def add(self, item_price, product=None, attributes="", item_tax=0, quantity=1, description=""):
         total = quantity * item_price
         if item_tax:
             total += quantity * item_tax
@@ -57,11 +60,13 @@ class Order:
             item = models.LineItem.objects.get(
                 order=self.order,
                 product=product,
+                description=description
             )
         except models.LineItem.DoesNotExist:
             item = models.LineItem()
             item.order = self.order
-            item.product = product
+            if product:
+                item.product = product
             item.attributes = attributes
             item.item_price = item_price
             item.item_tax = item_tax
@@ -139,4 +144,3 @@ class Order:
     def clear(self):
         for item in self.order.items.all():
             item.delete()
-
