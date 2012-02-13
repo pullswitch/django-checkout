@@ -12,6 +12,10 @@ class LineItemDoesNotExist(Exception):
     pass
 
 
+class OrderException(Exception):
+    pass
+
+
 class Order:
     def __init__(self, request):
         order_id = request.session.get(ORDER_ID)
@@ -29,6 +33,7 @@ class Order:
             order = self.new(request)
 
         self.order = order
+        self.is_subscription = False
 
     def __iter__(self):
         for item in self.order.items.all():
@@ -52,7 +57,10 @@ class Order:
         # @@ send signal with order id and request for further actions
         return order
 
-    def add(self, item_price, product=None, attributes="", item_tax=0, quantity=1, description=""):
+    def add(self, item_price, item_tax=0, quantity=1, **kwargs):
+        product = kwargs.get("product", None)
+        description = kwargs.get("description", "")
+        subscription_plan = kwargs.get("subscription_plan", "")
         total = quantity * item_price
         if item_tax:
             total += quantity * item_tax
@@ -60,14 +68,21 @@ class Order:
             item = models.LineItem.objects.get(
                 order=self.order,
                 product=product,
-                description=description
+                description=description,
+                subscription_plan=subscription_plan
             )
         except models.LineItem.DoesNotExist:
+            if self.order.items.count() and self.is_subscription:
+                raise OrderException
             item = models.LineItem()
             item.order = self.order
             if product:
                 item.product = product
-            item.attributes = attributes
+            if kwargs.get("attributes"):
+                item.attributes = kwargs.get("attributes")
+            if subscription_plan:
+                item.subscription_plan = subscription_plan
+                self.is_subscription = True
             item.item_price = item_price
             item.item_tax = item_tax
             item.total = total
@@ -135,7 +150,7 @@ class Order:
                 if discount.amount and discount.amount > 0:
                     self.order.discount = discount.amount
                 else:
-                    self.order.discount = float(self.get_total()) * (float(discount.percentage)/100.00)
+                    self.order.discount = float(self.get_total()) * (float(discount.percentage) / 100.00)
         elif amount:
             self.order.discount = amount
         self.order.save()

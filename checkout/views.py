@@ -15,7 +15,8 @@ from checkout.models import Discount, Order as OrderModel, OrderTransaction
 from checkout.order import Order, ORDER_ID, LineItemAlreadyExists
 from checkout.forms import CustomItemForm, PaymentProfileForm
 from checkout.signals import (pre_handle_billing_info, post_handle_billing_info,
-                        pre_submit_for_settlement, post_submit_for_settlement)
+                        pre_charge, post_charge,
+                        pre_subscribe, post_subscribe, order_complete)
 from checkout.utils import import_from_string
 
 payment_module = import_module(getattr(settings, "CHECKOUT_PAYMENT_PROCESSOR", "checkout.processors.braintree_processor"))
@@ -42,20 +43,30 @@ def info(request,
     }
 
     billing_data = None
-    if request.method == "POST" and (
-        request.POST.get("item_description") or request.POST.get("custom_confirm")
+    if request.method == "POST":
+        if  (request.POST.get("item_description") or
+            request.POST.get("custom_confirm")
         ):
-        checkout_summary["method"] = "custom"
-        custom_form = CustomItemForm(request.POST)
-        order = None
-        if custom_form.is_valid():
+            checkout_summary["method"] = "custom"
+            custom_form = CustomItemForm(request.POST)
+            order = None
+            if custom_form.is_valid():
+                checkout_summary["items"].append({
+                    "description": custom_form.cleaned_data["item_description"],
+                    "amount": custom_form.cleaned_data["item_amount"],
+                    "attributes": custom_form.cleaned_data["item_attributes"]
+                })
+                checkout_summary["tax"] = custom_form.tax()
+                checkout_summary["total"] = custom_form.total()
+        elif request.POST.get("subscription") and getattr(settings, "CHECKOUT_SUBSCRIPTIONS", False):
+            plan = settings.CHECKOUT_SUBSCRIPTIONS[request.POST.get("subscription")]
+            checkout_summary["method"] = "subscription"
             checkout_summary["items"].append({
-                "description": custom_form.cleaned_data["item_description"],
-                "amount": custom_form.cleaned_data["item_amount"],
-                "attributes": custom_form.cleaned_data["item_attributes"]
+                "description": plan["description"],
+                "amount": plan["rate"],
+                "subscription_plan": plan["plan_id"]
             })
-            checkout_summary["tax"] = custom_form.tax()
-            checkout_summary["total"] = custom_form.total()
+            checkout_summary["total"] = plan["rate"]
 
     if checkout_summary["method"] == "cart":
         # Look for cart in session
@@ -97,7 +108,9 @@ def info(request,
         Form = payment_form_class
 
     if request.method == "POST" and (
-        checkout_summary["method"] == "cart" or request.POST.get("custom_confirm")
+        checkout_summary["method"] == "cart" or
+        request.POST.get("custom_confirm") or
+        request.POST.get("subscription_confirm")
     ):
         form = Form(request.POST)
         if form.is_valid():
@@ -142,14 +155,17 @@ def info(request,
                     "last_name": request.user.last_name,
                 })
 
+                customer_id = None
+
                 pre_handle_billing_info.send(
                     sender=None,
                     user=request.user,
-                    payment_data=payment_data
+                    payment_data=payment_data,
+                    customer_id=customer_id
                 )
 
-                success, reference_id, error, results = pp.handle_billing_info(
-                    payment_data, amount=order.get_total()
+                success, reference_id, error, results = pp.create_customer(
+                    payment_data, customer_id=customer_id
                 )
 
                 post_handle_billing_info.send(
@@ -166,6 +182,7 @@ def info(request,
                     OrderTransaction.objects.create(
                         order=order.order,
                         amount=order.get_total(),
+                        payment_method=OrderTransaction.CREDIT,
                         last_four=form.cleaned_data["card_number"][-4:],
                         reference_number=reference_id,
                         billing_first_name=form.cleaned_data["billing_first_name"],
@@ -214,34 +231,65 @@ def confirm(request):
 
         pp = payment_module.Processor()
 
-        pre_submit_for_settlement.send(
-            sender=None,
-            order=order,
-            transaction=transaction
-        )
+        if order.is_subscription:
 
-        success, data = pp.submit_for_settlement(order, reference_id=transaction.reference_number)
+            # look for existing subs
+            # @@ problem: stripe makes it easy to check
+            # a customer for sub; braintree seemingly does not;
+            # instead they want you to search by a customer-specific
+            # subscription id. not compatible with stripe's approach
 
-        # NOTE: if trans failed, data == error code + verbose error message
+            pre_subscribe.send(
+                sender=None,
+                order=order,
+                transaction=transaction
+            )
+            item = order.items.all()[0]
+            success, data = pp.create_subscription(
+                customer_id=transaction.reference_number,
+                plan_id=item.subscription_plan,
+                price=transaction.amount
+            )
+            if success:
+                transaction.status = transaction.COMPLETE
+            else:
+                transaction.status = transaction.FAILED
 
-        transaction.received_data = str(data)
-        if success:
-            transaction.status = transaction.COMPLETE
+            post_subscribe.send(
+                sender=None,
+                order=order,
+                transaction=transaction
+            )
         else:
-            transaction.status = transaction.FAILED
-        transaction.save()
+            pre_charge.send(
+                sender=None,
+                order=order,
+                transaction=transaction
+            )
 
-        post_submit_for_settlement.send(
-            sender=None,
-            order=order,
-            transaction=transaction,
-            success=success,
-            data=data
-        )
+            success, data = pp.submit_for_settlement(order, reference_id=transaction.reference_number)
+
+            # NOTE: if trans failed, data == error code + verbose error message
+
+            transaction.received_data = str(data)
+            if success:
+                transaction.status = transaction.COMPLETE
+            else:
+                transaction.status = transaction.FAILED
+            transaction.save()
+
+            post_charge.send(
+                sender=None,
+                order=order,
+                transaction=transaction,
+                success=success,
+                data=data
+            )
 
         if success:
             order.status = OrderModel.COMPLETE
             order.save()
+            order_complete.send(sender=None, order=order)
             messages.add_message(request, messages.SUCCESS, _("Your order was successful. Thanks for your business!"))
 
             return redirect("checkout_order_details", [order.pk])

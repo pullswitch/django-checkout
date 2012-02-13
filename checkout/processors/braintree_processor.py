@@ -24,38 +24,57 @@ class Processor:
         if kwargs.get("user", None):
             self.user = kwargs.pop("user")
 
-    def create_customer(self, data):
+    def create_customer(self, data, customer_id=None):
 
         # expiration date is date due to different formatting requirements
         formatted_expire_date = data.get("expiration_date").strftime("%m/%Y")
 
-        try:
-            result = braintree.Customer.create({
-                "first_name": data["first_name"],
-                "last_name": data["last_name"],
-                "company": data["organization"],
-                "email": data["email"],
-                "phone": data["phone_number"],
-                "credit_card": {
-                    "number": data.get("card_number"),
-                    "expiration_date": formatted_expire_date,
-                    "cvv": data["ccv"],
-                    "billing_address": {
-                        "street_address": data["address1"],
-                        "extended_address": data.get("address2"),
-                        "postal_code": data["postal_code"],
-                        "locality": data["city"],
-                        "region": data["region"],
-                        "country_code_alpha2": data["country"],
-                    }
-                }
-            })
-        except:
-            result = {
-                "is_success": False,
-                "message": _("An exception occurred while creating the customer record")
+        credit_card_data = {
+            "number": data.get("card_number"),
+            "expiration_date": formatted_expire_date,
+            "cvv": data["ccv"],
+            "billing_address": {
+                "street_address": data["address1"],
+                "extended_address": data.get("address2"),
+                "postal_code": data["postal_code"],
+                "locality": data["city"],
+                "region": data["region"],
+                "country_code_alpha2": data["country"],
             }
-        return result
+        }
+
+        result = None
+
+        if customer_id:
+            try:
+                braintree.Customer.find(customer_id)
+                result = braintree.Customer.update(customer_id, {
+                    "credit_card": credit_card_data
+                })
+            except:
+                pass
+        try:
+            if not result:
+                result = braintree.Customer.create({
+                    "first_name": data["first_name"],
+                    "last_name": data["last_name"],
+                    "company": data["organization"],
+                    "email": data["email"],
+                    "phone": data["phone_number"],
+                    "credit_card": credit_card_data
+                })
+        except:
+            return False, None, _("An exception occurred while creating the customer record"), None
+
+        if not result.is_success:
+            error = result.errors.deep_errors[0]
+        else:
+            error = None
+        return result.is_success, customer_id, error, result
+
+    def delete_customer(self, customer_id):
+        result = braintree.Customer.delete(customer_id)
+        return result.is_success
 
     def get_payment_details(self, payment_token):
         try:
@@ -63,8 +82,8 @@ class Processor:
         except:
             return None
 
-    def get_subscription(self, subscription_id):
-        return braintree.Subscription.find(subscription_id)
+    def get_transaction(self, transaction_id):
+        return braintree.Transaction.find(transaction_id)
 
     def handle_billing_info(self, data, customer_id=None, payment_token=None, **kwargs):
 
@@ -261,6 +280,29 @@ class Processor:
 
         return result.is_success or False, errors
 
+    def create_subscription(self, customer_id, plan_id, price):
+        customer = braintree.Customer.find(customer_id)
+        token = customer.credit_cards[0].token
+        search_results = braintree.Subscription.search(
+            braintree.SubscriptionSearch.payment_token == token,
+            braintree.SubscriptionSearch.status == braintree.Subscription.Status.Active
+        )
+        existing = None
+        for item in search_results.items:
+            existing = item.id
+        if existing and getattr(settings, "CHECKOUT_ALLOW_PRERENEWAL", False):
+            return self.extend_subscription(existing, price, settings.CHECKOUT_PRERENEWAL_DISCOUNT)
+
+        data = {
+            "payment_method_token": token,
+            "plan_id": plan_id,
+            "price": price,
+        }
+        sub_result = braintree.Subscription.create(data)
+        return sub_result.is_success, sub_result
+
+    can_prerenew = True
+
     def extend_subscription(self, subscription_id, amount, discount_code, billing_cycles=1):
         sub = braintree.Subscription.find(subscription_id)
         if not sub.discounts:
@@ -290,3 +332,7 @@ class Processor:
                     ]
                 }
             })
+
+    def cancel_subscription(self, subscription_id):
+        result = braintree.Subscription.cancel(subscription_id)
+        return result.is_success

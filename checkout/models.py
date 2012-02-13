@@ -105,6 +105,7 @@ class LineItem(models.Model):
     object_id = models.PositiveIntegerField(null=True)
     description = models.CharField(max_length=250, blank=True, null=True)
     attributes = models.CharField(max_length=100, blank=True, null=True)
+    subscription_plan = models.CharField(max_length=100, blank=True, null=True)
     quantity = models.PositiveIntegerField(default=1, null=True)
     item_price = CurrencyField(max_digits=18, decimal_places=10)
     item_tax = CurrencyField(default=Decimal('0.00'), max_digits=18, decimal_places=10)
