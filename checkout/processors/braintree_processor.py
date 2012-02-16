@@ -53,22 +53,23 @@ class Processor:
                 })
             except:
                 pass
-        try:
-            if not result:
-                result = braintree.Customer.create({
-                    "first_name": data["first_name"],
-                    "last_name": data["last_name"],
-                    "company": data["organization"],
-                    "email": data["email"],
-                    "phone": data["phone_number"],
-                    "credit_card": credit_card_data
-                })
-        except:
-            return False, None, _("An exception occurred while creating the customer record"), None
+        # try:
+        if not result:
+            result = braintree.Customer.create({
+                "first_name": data["first_name"],
+                "last_name": data["last_name"],
+                "company": data["organization"],
+                "email": data["email"],
+                "phone": data["phone_number"],
+                "credit_card": credit_card_data
+            })
+        #except:
+         #   return False, None, _("An exception occurred while creating the customer record"), None
 
         if not result.is_success:
             error = result.errors.deep_errors[0]
         else:
+            customer_id = result.customer.id
             error = None
         return result.is_success, customer_id, error, result
 
@@ -249,13 +250,21 @@ class Processor:
 
         return False, "No transaction id or data provided"
 
-    def sale(self, amount, customer_id, payment_method_token):
-        result = braintree.Transaction.sale({
-            "amount": amount,
-            "customer_id": customer_id,
-            "payment_method_token": payment_method_token
-        })
-        return result
+    def charge(self, amount, customer_id=None, payment_method_token=None):
+        if payment_method_token:
+            result = braintree.Transaction.sale({
+                "amount": amount,
+                "payment_method_token": payment_method_token
+            })
+        elif customer_id:
+            result = braintree.Transaction.sale({
+                "amount": amount,
+                "customer_id": customer_id,
+                "payment_method_token": payment_method_token
+            })
+        else:
+            return False, None
+        return result.is_success, result
 
     def refund(self, reference_id, amount=None):
         transaction = braintree.Transaction.find(reference_id)

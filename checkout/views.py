@@ -67,6 +67,7 @@ def info(request,
                 "subscription_plan": plan["plan_id"]
             })
             checkout_summary["total"] = plan["rate"]
+            order = None
 
     if checkout_summary["method"] == "cart":
         # Look for cart in session
@@ -267,7 +268,7 @@ def confirm(request):
                 transaction=transaction
             )
 
-            success, data = pp.submit_for_settlement(order, reference_id=transaction.reference_number)
+            success, data = pp.charge(order.total, customer_id=transaction.reference_number)
 
             # NOTE: if trans failed, data == error code + verbose error message
 

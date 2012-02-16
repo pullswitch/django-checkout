@@ -33,7 +33,6 @@ class Order:
             order = self.new(request)
 
         self.order = order
-        self.is_subscription = False
 
     def __iter__(self):
         for item in self.order.items.all():
@@ -80,9 +79,7 @@ class Order:
                 item.product = product
             if kwargs.get("attributes"):
                 item.attributes = kwargs.get("attributes")
-            if subscription_plan:
-                item.subscription_plan = subscription_plan
-                self.is_subscription = True
+            item.subscription_plan = subscription_plan
             item.item_price = item_price
             item.item_tax = item_tax
             item.total = total

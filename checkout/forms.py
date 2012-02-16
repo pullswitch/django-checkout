@@ -48,6 +48,7 @@ class PaymentProfileForm(forms.Form):
 
     address1 = forms.CharField(label=_("Address 1"), max_length=50)
     address2 = forms.CharField(label=_("Address 2"), max_length=50, required=False)
+    organization = forms.CharField(label=_("Business/Organization"), max_length=50, required=False)
     city = forms.CharField(max_length=40)
     region = forms.CharField(label=_("State/Region"), max_length=75)
     postal_code = forms.CharField(max_length=15)
@@ -68,6 +69,7 @@ class PaymentProfileForm(forms.Form):
             Row("billing_first_name", "billing_last_name"),
             "address1",
             "address2",
+            "organization",
             Row("city", "region", "postal_code"),
             Row("country", "phone_number")
         ),
@@ -76,6 +78,8 @@ class PaymentProfileForm(forms.Form):
         )
     )
     helper.add_layout(layout)
+    submit = Submit("save-button", "Continue")
+    helper.add_input(submit)
 
     def __init__(self, *args, **kwargs):
         super(PaymentProfileForm, self).__init__(*args, **kwargs)
@@ -90,10 +94,6 @@ class PaymentProfileForm(forms.Form):
                 raise forms.ValidationError("This is not a valid discount code")
 
         return code
-
-    def customize_submit_button(self, id, text):
-        button = Submit(id, text)
-        self.helper.inputs[0] = button
 
 
 class CheckoutSignupForm(BaseSignupForm):

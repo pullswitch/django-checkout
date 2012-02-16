@@ -75,7 +75,7 @@ class Processor:
     def get_transaction(self, transaction_id):
         return stripe.Charge.retrieve(transaction_id)
 
-    def charge(self, amount=None, data=None, customer_id=None, payment_token=None):
+    def charge(self, amount, data=None, customer_id=None, payment_token=None):
 
         result = None
 

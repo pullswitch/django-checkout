@@ -75,7 +75,7 @@ class Order(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.pk:
-            self.time_stamp = datetime.now()
+            self.creation_date = datetime.now()
 
         super(Order, self).save(*args, **kwargs)
 
@@ -84,6 +84,13 @@ class Order(models.Model):
             return self.transactions.get(status=OrderTransaction.COMPLETE)
         except:
             return None
+
+    @property
+    def is_subscription(self):
+        for item in self.items.all():
+            if item.subscription_plan:
+                return True
+        return False
 
     class Meta:
         get_latest_by = "creation_date"
