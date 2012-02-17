@@ -13,7 +13,7 @@ post_charge = django.dispatch.Signal(
 
 pre_subscribe = django.dispatch.Signal(providing_args=["order", "transaction"])
 post_subscribe = django.dispatch.Signal(
-    providing_args=["order", "transaction", "success", "data"]
+    providing_args=["order", "transaction", "success", "data", "request"]
 )
 
 order_complete = django.dispatch.Signal(

@@ -3,9 +3,11 @@ from decimal import Decimal
 
 from django import forms
 from django.conf import settings
+from django.utils.hashcompat import sha_constructor
 from django.utils.translation import ugettext as _
 
 from django.contrib.auth.models import User
+from django.contrib.auth import login
 
 from django_countries.countries import COUNTRIES
 from uni_form.helpers import FormHelper, Layout, Fieldset, Row, Submit
@@ -61,6 +63,9 @@ class PaymentProfileForm(forms.Form):
     helper = FormHelper()
 
     layout = Layout(
+        Fieldset("",
+            "discount_code",
+        ),
         Fieldset("Payment",
             "card_number",
             Row("ccv", "expiration_date"),
@@ -73,9 +78,6 @@ class PaymentProfileForm(forms.Form):
             Row("city", "region", "postal_code"),
             Row("country", "phone_number")
         ),
-        Fieldset("",
-            "discount_code",
-        )
     )
     helper.add_layout(layout)
     submit = Submit("save-button", "Continue")
@@ -100,6 +102,7 @@ class CheckoutSignupForm(BaseSignupForm):
 
     first_name = forms.CharField()
     last_name = forms.CharField()
+    email = forms.CharField()
 
     def __init__(self, *args, **kwargs):
         super(CheckoutSignupForm, self).__init__(*args, **kwargs)
@@ -109,8 +112,7 @@ class CheckoutSignupForm(BaseSignupForm):
             "last_name",
             "email",
             "password1",
-            "password2",
-            "confirmation_key",
+            "password2"
         ]
 
     def create_user(self, username=None, commit=True):
@@ -122,7 +124,11 @@ class CheckoutSignupForm(BaseSignupForm):
                     User.objects.get(username=username)
                 except User.DoesNotExist:
                     break
-        return super(CheckoutSignupForm, self).create_user(username, commit=commit)
+        try:
+            response = super(CheckoutSignupForm, self).create_user(username, commit=commit)
+        except:
+            response = User.objects.create_user(username, email=email, password=self.cleaned_data["password1"])
+        return response
 
     def generate_username(self, email):
         """
@@ -144,6 +150,11 @@ class CheckoutSignupForm(BaseSignupForm):
             profile.save()
         except:
             pass
+
+    def login(self, request, user):
+        # nasty hack to get get_user to work in Django
+        user.backend = "django.contrib.auth.backends.ModelBackend"
+        login(request, user)
 
     helper = FormHelper()
 

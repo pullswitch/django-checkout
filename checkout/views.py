@@ -1,9 +1,13 @@
+import json
+
 from django.conf import settings
 from django.db.models import Q
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render_to_response
 from django.template import RequestContext
 from django.utils.importlib import import_module
 from django.utils.translation import ugettext_lazy as _
+from django.views.decorators.http import require_POST
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -38,18 +42,31 @@ def info(request,
     checkout_summary = {
         "method": "cart",
         "items": [],
+        "discount": 0,
         "tax": 0,
         "total": 0
     }
 
     billing_data = None
+    order = None
+    signup_form = None
+
+    if request.user.is_authenticated():
+        order = Order(request)
+
+    # be helpful and look for stored billing data to autopop with
+    if order and order.get_transactions().count():
+        billing_data = order.get_transactions().latest()
+
+    if order and order.order.discount:
+        checkout_summary["discount"] = order.order.discount
+
     if request.method == "POST":
         if  (request.POST.get("item_description") or
             request.POST.get("custom_confirm")
         ):
             checkout_summary["method"] = "custom"
             custom_form = CustomItemForm(request.POST)
-            order = None
             if custom_form.is_valid():
                 checkout_summary["items"].append({
                     "description": custom_form.cleaned_data["item_description"],
@@ -67,7 +84,6 @@ def info(request,
                 "subscription_plan": plan["plan_id"]
             })
             checkout_summary["total"] = plan["rate"]
-            order = None
 
     if checkout_summary["method"] == "cart":
         # Look for cart in session
@@ -79,143 +95,158 @@ def info(request,
         except:
             cart = None
 
-        # Look for an order in process
-        order = None
-
-        if request.session.get(ORDER_ID):
-            try:
-                order = OrderModel.objects.get(user=request.session[ORDER_ID])
-            except OrderModel.DoesNotExist:
-                del request.session[ORDER_ID]
-
-        if not order:
-            try:
-                order = OrderModel.objects.incomplete().get(user=request.user)
-            except:
-                pass
-
-        # be helpful and look for stored billing data to autopop with
-        if order and order.transactions.count():
-            billing_data = order.transactions.latest()
-
         # No cart and no order == cya
         if not order and (not cart or not cart.item_set.count()):
             return redirect(empty_cart_url)
 
     if not request.user.is_authenticated():
         # @@ to do: if combo_form_class == None, use login_required approach
-        Form = signup_form_class
+        SignupForm = signup_form_class
     else:
-        Form = payment_form_class
+        SignupForm = None
+    Form = payment_form_class
 
     if request.method == "POST" and (
         checkout_summary["method"] == "cart" or
         request.POST.get("custom_confirm") or
         request.POST.get("subscription_confirm")
     ):
+        if SignupForm:
+            signup_form = SignupForm(request.POST)
+            if signup_form.is_valid() and not request.user.is_authenticated():
+                try:
+                    user = signup_form.save()
+                except:
+                    user = signup_form.create_user()
+                signup_form.login(request, user)
+
         form = Form(request.POST)
-        if form.is_valid():
-            if not request.user.is_authenticated():
-                user = form.save(request)
-                form.login(request, user)
-                # grab payment form class
-                form = payment_form_class()
+        if request.user.is_authenticated():
 
-            else:
-                # create order instance
+            # create order instance
+            if not order:
                 order = Order(request)
-                request.session[ORDER_ID] = order.order.id
+            request.session[ORDER_ID] = order.pk
+            success = False  # default success flag
 
+            for item in checkout_summary["items"]:
+                try:
+                    order.add(
+                        item.unit_price,
+                        product=item.product,
+                        attributes=item.attributes
+                    )
+                except LineItemAlreadyExists:
+                    pass
+                except AttributeError:
+                    order.add(
+                        item["amount"],
+                        attributes=item.get("attributes", ""),
+                        description=item["description"],
+                        subscription_plan=item.get("subscription_plan", "")
+                    )
+
+            if request.POST.get("discount_code"):
+                order.apply_discount(request.POST.get("discount_code"))
+                if order.order.discount:
+                    OrderTransaction.objects.get_or_create(
+                        order=order.order,
+                        amount=order.order.discount,
+                        payment_method=OrderTransaction.DISCOUNT,
+                        reference_number=order.order.discount_code
+                    )
+
+            order.update_totals()
+
+            if form.is_valid() or order.order.total == 0:
                 # clean up any old incomplete orders
                 for abandoned in OrderModel.objects.filter(
                         user=request.user
                     ).exclude(pk=order.order.pk).filter(
                         Q(status=OrderModel.PENDING_PAYMENT) | Q(status=OrderModel.INCOMPLETE)
                     ):
-                    for item in abandoned.items.all():
-                        item.delete()
+                    abandoned.items.all().delete()
                     abandoned.delete()
 
-                for item in checkout_summary["items"]:
-                    try:
-                        order.add(item.unit_price, product=item.product, attributes=item.attributes)
-                    except LineItemAlreadyExists:
-                        pass
-                    except AttributeError:
-                        order.add(item["amount"], attributes=item["attributes"], description=item["description"])
+                if order.order.total > 0 and form.is_valid():
 
-                if form.cleaned_data.get("discount_code"):
-                    order.apply_discount(code=form.cleaned_data["discount_code"])
+                    pp = payment_module.Processor()
 
-                pp = payment_module.Processor()
+                    payment_data = form.cleaned_data
+                    payment_data.update({
+                        "email": request.user.email,
+                        "first_name": request.user.first_name,
+                        "last_name": request.user.last_name,
+                    })
 
-                payment_data = form.cleaned_data
-                payment_data.update({
-                    "email": request.user.email,
-                    "first_name": request.user.first_name,
-                    "last_name": request.user.last_name,
-                })
+                    customer_id = None
 
-                customer_id = None
-
-                pre_handle_billing_info.send(
-                    sender=None,
-                    user=request.user,
-                    payment_data=payment_data,
-                    customer_id=customer_id
-                )
-
-                success, reference_id, error, results = pp.create_customer(
-                    payment_data, customer_id=customer_id
-                )
-
-                post_handle_billing_info.send(
-                    sender=None,
-                    user=request.user,
-                    success=success,
-                    reference_id=reference_id,
-                    error=error,
-                    results=results
-                )
-
-                if success:
-
-                    OrderTransaction.objects.create(
-                        order=order.order,
-                        amount=order.get_total(),
-                        payment_method=OrderTransaction.CREDIT,
-                        last_four=form.cleaned_data["card_number"][-4:],
-                        reference_number=reference_id,
-                        billing_first_name=form.cleaned_data["billing_first_name"],
-                        billing_last_name=form.cleaned_data["billing_last_name"],
-                        billing_address1=form.cleaned_data["address1"],
-                        billing_address2=form.cleaned_data["address2"],
-                        billing_city=form.cleaned_data["city"],
-                        billing_region=form.cleaned_data["region"],
-                        billing_postal_code=form.cleaned_data["postal_code"],
-                        billing_country=form.cleaned_data["country"],
+                    pre_handle_billing_info.send(
+                        sender=None,
+                        user=request.user,
+                        payment_data=payment_data,
+                        customer_id=customer_id
                     )
 
-                    order.update_totals()
-                    order.update_status(OrderModel.PENDING_PAYMENT)
+                    success, reference_id, error, results = pp.create_customer(
+                        payment_data, customer_id=customer_id
+                    )
 
+                    post_handle_billing_info.send(
+                        sender=None,
+                        user=request.user,
+                        success=success,
+                        reference_id=reference_id,
+                        error=error,
+                        results=results
+                    )
+
+                    if success:
+
+                        OrderTransaction.objects.get_or_create(
+                            order=order.order,
+                            amount=order.order.total,
+                            payment_method=OrderTransaction.CREDIT,
+                            last_four=form.cleaned_data["card_number"][-4:],
+                            reference_number=reference_id,
+                            billing_first_name=form.cleaned_data["billing_first_name"],
+                            billing_last_name=form.cleaned_data["billing_last_name"],
+                            billing_address1=form.cleaned_data["address1"],
+                            billing_address2=form.cleaned_data["address2"],
+                            billing_city=form.cleaned_data["city"],
+                            billing_region=form.cleaned_data["region"],
+                            billing_postal_code=form.cleaned_data["postal_code"],
+                            billing_country=form.cleaned_data["country"],
+                        )
+
+                        order.update_totals()
+                        order.update_status(OrderModel.PENDING_PAYMENT)
+
+                    else:
+                        form._errors.update({"__all__": [error, ]})
+
+                elif order.order.total == 0:
+                    success = True
+
+                if success:
                     return redirect("checkout_confirm")
-
-                else:
-                    form._errors.update({"__all__": [error, ]})
     else:
         form = Form()
         if request.user.is_authenticated():
+            signup_form = None
             if billing_data:
                 for field in form.fields:
-                    if billing_data.get(field):
-                        field.initial = billing_data.get(field)
+                    if hasattr(billing_data, field):
+                        form.fields[field].initial = getattr(billing_data, field)
             else:
                 form.fields["billing_first_name"].initial = request.user.first_name
                 form.fields["billing_last_name"].initial = request.user.last_name
+        else:
+            signup_form = SignupForm()
 
     return render_to_response(template_name, {
         "form": form,
+        "signup_form": signup_form,
         "checkout_summary": checkout_summary,
         "order": order
     }, context_instance=RequestContext(request))
@@ -223,80 +254,112 @@ def info(request,
 
 def confirm(request):
     try:
-        order = request.user.orders.pending_payment()[0]
-        transaction = order.transactions.latest()
+        order = Order(request)
+        if order.get_transactions().count():
+            transaction = order.get_transactions().latest()
+        else:
+            transaction = None
     except:
         return redirect("checkout")
 
-    if request.method == "POST":
+    if order.order.status not in (OrderModel.INCOMPLETE, OrderModel.PENDING_PAYMENT):
+        if ORDER_ID in request.session:
+            del request.session[ORDER_ID]
+        if order.order.status == OrderModel.COMPLETE:
+            return redirect("checkout_order_details", order.pk)
+        messages.add_message(request, messages.WARNING, _("Please try your order again"))
+        redirect("checkout")
 
-        pp = payment_module.Processor()
+    if request.method == "POST" or order.order.total == 0:
 
-        if order.is_subscription:
-
-            # look for existing subs
-            # @@ problem: stripe makes it easy to check
-            # a customer for sub; braintree seemingly does not;
-            # instead they want you to search by a customer-specific
-            # subscription id. not compatible with stripe's approach
-
-            pre_subscribe.send(
-                sender=None,
-                order=order,
-                transaction=transaction
-            )
-            item = order.items.all()[0]
-            success, data = pp.create_subscription(
-                customer_id=transaction.reference_number,
-                plan_id=item.subscription_plan,
-                price=transaction.amount
-            )
-            if success:
-                transaction.status = transaction.COMPLETE
-            else:
-                transaction.status = transaction.FAILED
-
-            post_subscribe.send(
-                sender=None,
-                order=order,
-                transaction=transaction
-            )
+        if order.order.total == 0:
+            success = True
+            if order.order.is_subscription:
+                pre_subscribe.send(
+                    sender=None,
+                    order=order.order,
+                    transaction=transaction
+                )
+                post_subscribe.send(
+                    sender=None,
+                    order=order.order,
+                    transaction=transaction,
+                    request=request
+                )
         else:
-            pre_charge.send(
-                sender=None,
-                order=order,
-                transaction=transaction
-            )
+            pp = payment_module.Processor()
 
-            success, data = pp.charge(order.total, customer_id=transaction.reference_number)
+            if order.order.is_subscription:
 
-            # NOTE: if trans failed, data == error code + verbose error message
+                # look for existing subs
+                # @@ problem: stripe makes it easy to check
+                # a customer for sub; braintree seemingly does not;
+                # instead they want you to search by a customer-specific
+                # subscription id. not compatible with stripe's approach
 
-            transaction.received_data = str(data)
-            if success:
-                transaction.status = transaction.COMPLETE
+                pre_subscribe.send(
+                    sender=None,
+                    order=order.order,
+                    transaction=transaction
+                )
+                item = order.order.items.all()[0]
+                success, data = pp.create_subscription(
+                    customer_id=transaction.reference_number,
+                    plan_id=item.subscription_plan,
+                    price=transaction.amount
+                )
+                if success:
+                    transaction.status = transaction.COMPLETE
+                else:
+                    transaction.status = transaction.FAILED
+
+                post_subscribe.send(
+                    sender=None,
+                    order=order.order,
+                    transaction=transaction
+                )
             else:
-                transaction.status = transaction.FAILED
-            transaction.save()
+                pre_charge.send(
+                    sender=None,
+                    order=order.order,
+                    transaction=transaction
+                )
 
-            post_charge.send(
-                sender=None,
-                order=order,
-                transaction=transaction,
-                success=success,
-                data=data
-            )
+                success, data = pp.charge(order.order.total, customer_id=transaction.reference_number)
+
+                # NOTE: if trans failed, data == error code + verbose error message
+
+                transaction.received_data = str(data)
+                if success:
+                    transaction.status = transaction.COMPLETE
+                else:
+                    transaction.status = transaction.FAILED
+                transaction.save()
+
+                post_charge.send(
+                    sender=None,
+                    order=order.order,
+                    transaction=transaction,
+                    success=success,
+                    data=data
+                )
 
         if success:
-            order.status = OrderModel.COMPLETE
-            order.save()
-            order_complete.send(sender=None, order=order)
+            order.update_status(OrderModel.COMPLETE)
+            order_complete.send(sender=None, order=order.order)
+            if ORDER_ID in request.session:
+                del request.session[ORDER_ID]
+            try:
+                cart = CartModel.objects.get(pk=request.session[CART_ID])
+                cart.item_set.all().delete()
+                cart.delete()
+            except:
+                pass
             messages.add_message(request, messages.SUCCESS, _("Your order was successful. Thanks for your business!"))
 
-            return redirect("checkout_order_details", [order.pk])
+            return redirect("checkout_order_details", order.pk)
         else:
-            order.status = OrderModel.PENDING_PAYMENT
-            order.save()
+            order.update_status(OrderModel.PENDING_PAYMENT)
             messages.add_message(request, messages.ERROR, data)
 
     return render_to_response("checkout/confirm.html", {
@@ -327,3 +390,13 @@ def order_details(request, pk, **kwargs):
         "order": order,
         "transaction": transaction
     }, context_instance=RequestContext(request))
+
+
+@require_POST
+def lookup_discount_code(request):
+    try:
+        discount = Discount.objects.get(code=request.POST.get("discount_code"))
+        amount = discount.amount
+    except:
+        amount = 0
+    return HttpResponse(json.dumps({"discount": str(amount)}), mimetype="application/json")

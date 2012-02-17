@@ -18,11 +18,13 @@ class OrderException(Exception):
 
 class Order:
     def __init__(self, request):
-        order_id = request.session.get(ORDER_ID)
+        order_id = request.session.get(ORDER_ID, None)
         order = None
         if order_id:
             try:
-                order = models.Order.objects.get(id=order_id, checked_out=False)
+                order = models.Order.objects.get(id=order_id, status__in=(
+                    models.Order.INCOMPLETE, models.Order.PENDING_PAYMENT
+                ))
             except models.Order.DoesNotExist:
                 pass
         if not order and request.user.is_authenticated():
@@ -38,11 +40,21 @@ class Order:
         for item in self.order.items.all():
             yield item
 
+    @property
+    def pk(self):
+        try:
+            return self.order.pk
+        except:
+            None
+
     def get_total(self):
         total = 0
         for item in self:
             total += item.total
         return total
+
+    def get_transactions(self):
+        return self.order.transactions.all()
 
     def new(self, request):
         order = models.Order(
@@ -63,14 +75,20 @@ class Order:
         total = quantity * item_price
         if item_tax:
             total += quantity * item_tax
-        try:
-            item = models.LineItem.objects.get(
+        if product:
+            match = models.LineItem.objects.filter(
                 order=self.order,
                 product=product,
                 description=description,
                 subscription_plan=subscription_plan
             )
-        except models.LineItem.DoesNotExist:
+        else:
+            match = models.LineItem.objects.filter(
+                order=self.order,
+                description=description,
+                subscription_plan=subscription_plan
+            )
+        if not match.count():
             if self.order.items.count() and self.is_subscription:
                 raise OrderException
             item = models.LineItem()
@@ -86,8 +104,6 @@ class Order:
             item.quantity = quantity
             item.description = description
             item.save()
-        else:
-            raise LineItemAlreadyExists
 
     def remove(self, product):
         try:
@@ -126,6 +142,8 @@ class Order:
         self.order.tax = tax
         if self.order.discount:
             total = float(total) - float(self.order.discount)
+            if total < 0:
+                total = 0
         self.order.total = total
         self.order.save()
 
@@ -133,16 +151,13 @@ class Order:
         self.order.status = status
         self.order.save()
 
-        if self.order.status == self.order.COMPLETE and self.order.discount_code:
-            discount = models.Discount.objects.get(code=self.order.discount_code)
-            if discount.uses_limit:
-                discount.times_used += 1
-                discount.save()
+        if self.order.status == self.order.COMPLETE:
+            self.complete_order()
 
     def apply_discount(self, code="", amount=None):
         if code:
             discount = models.Discount.objects.get(code=code)
-            if discount.valid:
+            if discount.is_valid(self.order.user):
                 self.order.discount_code = code
                 if discount.amount and discount.amount > 0:
                     self.order.discount = discount.amount
@@ -151,7 +166,16 @@ class Order:
         elif amount:
             self.order.discount = amount
         self.order.save()
-        print self.order.discount
+
+    def complete_order(self):
+        self.order.status = models.Order.COMPLETE
+        self.order.save()
+        if self.order.discount_code:
+            discount = models.Discount.objects.get(code=self.order.discount_code)
+            discount.times_used += 1
+            if discount.user or not discount.is_valid():
+                discount.active = False
+            discount.save()
 
     def clear(self):
         for item in self.order.items.all():
