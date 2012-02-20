@@ -16,7 +16,7 @@ from cart.cart import CART_ID
 from cart.models import Cart as CartModel
 
 from checkout.models import Discount, Order as OrderModel, OrderTransaction
-from checkout.order import Order, ORDER_ID, LineItemAlreadyExists
+from checkout.order import Order, ORDER_ID
 from checkout.forms import CustomItemForm, PaymentProfileForm
 from checkout.signals import (pre_handle_billing_info, post_handle_billing_info,
                         pre_charge, post_charge,
@@ -330,7 +330,6 @@ def confirm(request):
                 success, data = pp.charge(order.order.total, customer_id=transaction.reference_number)
 
                 # NOTE: if trans failed, data == error code + verbose error message
-
                 transaction.received_data = str(data)
                 if success:
                     transaction.status = transaction.COMPLETE

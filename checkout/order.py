@@ -76,19 +76,19 @@ class Order:
         if item_tax:
             total += quantity * item_tax
         if product:
-            match = models.LineItem.objects.filter(
+            item_search = models.LineItem.objects.filter(
                 order=self.order,
                 product=product,
                 description=description,
                 subscription_plan=subscription_plan
             )
         else:
-            match = models.LineItem.objects.filter(
+            item_search = models.LineItem.objects.filter(
                 order=self.order,
                 description=description,
                 subscription_plan=subscription_plan
             )
-        if not match.count():
+        if not item_search.count():
             if self.order.items.count() and self.order.is_subscription:
                 return
             item = models.LineItem()
@@ -104,8 +104,8 @@ class Order:
             item.quantity = quantity
             item.description = description
             item.save()
-        elif match[0].total != total:
-            item = match[0]
+        elif item_search[0].total != total:
+            item = item_search[0]
             item.item_price = item_price
             item.item_tax = item_tax
             item.total = total

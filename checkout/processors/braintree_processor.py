@@ -2,7 +2,6 @@ import logging
 from decimal import Decimal
 
 from django.conf import settings
-from django.utils.translation import ugettext_lazy as _
 
 import braintree
 
@@ -161,25 +160,6 @@ class Processor:
                     }
                 })
 
-            """elif billing_profile.payment_token:
-                result = braintree.CreditCard.update(billing_profile.payment_token, {
-                    "cardholder_name": "%s %s" % (data["billing_first_name"], data["billing_last_name"]),
-                    "number": data.get("card_number"),
-                    "expiration_date": formatted_expire_date,
-                    "cvv": data["ccv"],
-                    "billing_address": {
-                            "street_address": data["address1"],
-                            "postal_code": data["postal_code"],
-                            "locality": data["city"],
-                            "region": data["region"],
-                            "country_code_alpha2": data["country"],
-                            "options": {
-                                "update_existing": True
-                            }
-                        }
-                })
-            """
-
             if result and not result.is_success:
                 # nullify the result to force a normal transaction
                 result = None
@@ -332,14 +312,14 @@ class Processor:
         for result in search_results.items:
             if result.subscription_id:
                 sub = braintree.Subscription.find(result.subscription_id)
-                if status != "active" or sub.status is braintree.Subscription.Status.Active:
+                if status != "active" or sub.status == "Active":
                     return sub
         return None
 
     def extend_subscription(self, subscription_id, amount, discount_code, billing_cycles=1):
         sub = braintree.Subscription.find(subscription_id)
         if not sub.discounts:
-            braintree.Subscription.update(subscription_id, {
+            update_result = braintree.Subscription.update(subscription_id, {
                 "price": amount,
                 "discounts": {
                     "add": [
@@ -353,7 +333,7 @@ class Processor:
                 }
             })
         else:
-            braintree.Subscription.update(subscription_id, {
+            update_result = braintree.Subscription.update(subscription_id, {
                 "price": amount,
                 "discounts": {
                     "update": [
@@ -365,6 +345,7 @@ class Processor:
                     ]
                 }
             })
+        return update_result
 
     def cancel_subscription(self, subscription_id):
         result = braintree.Subscription.cancel(subscription_id)
