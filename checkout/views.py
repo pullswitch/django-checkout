@@ -136,8 +136,6 @@ def info(request,
                         product=item.product,
                         attributes=item.attributes
                     )
-                except LineItemAlreadyExists:
-                    pass
                 except AttributeError:
                     order.add(
                         item["amount"],
@@ -149,6 +147,8 @@ def info(request,
             if request.POST.get("discount_code"):
                 order.apply_discount(request.POST.get("discount_code"))
                 if order.order.discount:
+                    checkout_summary["discount"] = order.order.discount
+                    checkout_summary["total"] -= order.order.discount
                     OrderTransaction.objects.get_or_create(
                         order=order.order,
                         amount=order.order.discount,
@@ -316,7 +316,9 @@ def confirm(request):
                 post_subscribe.send(
                     sender=None,
                     order=order.order,
-                    transaction=transaction
+                    transaction=transaction,
+                    data=data,
+                    request=request
                 )
             else:
                 pre_charge.send(
@@ -363,7 +365,7 @@ def confirm(request):
             messages.add_message(request, messages.ERROR, data)
 
     return render_to_response("checkout/confirm.html", {
-        "order": order,
+        "order": order.order,
         "transaction": transaction,
     }, context_instance=RequestContext(request))
 

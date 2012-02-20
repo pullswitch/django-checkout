@@ -26,31 +26,37 @@ class Processor:
 
     def create_customer(self, data, customer_id=None):
 
-        # expiration date is date due to different formatting requirements
-        formatted_expire_date = data.get("expiration_date").strftime("%m/%Y")
+        try:
+            # expiration date is date due to different formatting requirements
+            formatted_expire_date = data.get("expiration_date").strftime("%m/%Y")
 
-        credit_card_data = {
-            "number": data.get("card_number"),
-            "expiration_date": formatted_expire_date,
-            "cvv": data["ccv"],
-            "billing_address": {
-                "street_address": data["address1"],
-                "extended_address": data.get("address2"),
-                "postal_code": data["postal_code"],
-                "locality": data["city"],
-                "region": data["region"],
-                "country_code_alpha2": data["country"],
+            credit_card_data = {
+                "number": data.get("card_number"),
+                "expiration_date": formatted_expire_date,
+                "cvv": data["ccv"],
+                "billing_address": {
+                    "street_address": data["address1"],
+                    "extended_address": data.get("address2"),
+                    "postal_code": data["postal_code"],
+                    "locality": data["city"],
+                    "region": data["region"],
+                    "country_code_alpha2": data["country"],
+                }
             }
-        }
+        except:
+            credit_card_data = None
 
         result = None
 
         if customer_id:
             try:
-                braintree.Customer.find(customer_id)
-                result = braintree.Customer.update(customer_id, {
-                    "credit_card": credit_card_data
-                })
+                cust = braintree.Customer.find(customer_id)
+                if credit_card_data:
+                    result = braintree.Customer.update(customer_id, {
+                        "credit_card": credit_card_data
+                    })
+                else:
+                    return True, customer_id, None, cust
             except:
                 pass
         # try:
@@ -72,6 +78,9 @@ class Processor:
             customer_id = result.customer.id
             error = None
         return result.is_success, customer_id, error, result
+
+    def get_customer(self, customer_id):
+        return braintree.Customer.find(customer_id)
 
     def delete_customer(self, customer_id):
         result = braintree.Customer.delete(customer_id)
@@ -292,13 +301,17 @@ class Processor:
     def create_subscription(self, customer_id, plan_id, price):
         customer = braintree.Customer.find(customer_id)
         token = customer.credit_cards[0].token
-        search_results = braintree.Subscription.search(
-            braintree.SubscriptionSearch.payment_token == token,
-            braintree.SubscriptionSearch.status == braintree.Subscription.Status.Active
+        # could finding a customer's subscription BE any more awkward?!
+        search_results = braintree.Transaction.search(
+            braintree.TransactionSearch.customer_id == customer_id
         )
         existing = None
-        for item in search_results.items:
-            existing = item.id
+        for result in search_results.items:
+            if result.subscription_id:
+                sub = braintree.Subscription.find(result.subscription_id)
+                if sub.status is braintree.Subscription.Status.Active:
+                    existing = sub.id
+                    continue
         if existing and getattr(settings, "CHECKOUT_ALLOW_PRERENEWAL", False):
             return self.extend_subscription(existing, price, settings.CHECKOUT_PRERENEWAL_DISCOUNT)
 
@@ -311,6 +324,17 @@ class Processor:
         return sub_result.is_success, sub_result
 
     can_prerenew = True
+
+    def get_subscription(self, customer_id, status="active"):
+        search_results = braintree.Transaction.search(
+            braintree.TransactionSearch.customer_id == customer_id
+        )
+        for result in search_results.items:
+            if result.subscription_id:
+                sub = braintree.Subscription.find(result.subscription_id)
+                if status != "active" or sub.status is braintree.Subscription.Status.Active:
+                    return sub
+        return None
 
     def extend_subscription(self, subscription_id, amount, discount_code, billing_cycles=1):
         sub = braintree.Subscription.find(subscription_id)

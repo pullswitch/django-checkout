@@ -195,6 +195,7 @@ class OrderTransaction(models.Model):
 
     class Meta:
         get_latest_by = "creation_date"
+        ordering = ('-creation_date',)
 
     def save(self, **kwargs):
         if not self.pk:

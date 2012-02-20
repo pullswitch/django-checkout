@@ -89,8 +89,8 @@ class Order:
                 subscription_plan=subscription_plan
             )
         if not match.count():
-            if self.order.items.count() and self.is_subscription:
-                raise OrderException
+            if self.order.items.count() and self.order.is_subscription:
+                return
             item = models.LineItem()
             item.order = self.order
             if product:
@@ -103,6 +103,12 @@ class Order:
             item.total = total
             item.quantity = quantity
             item.description = description
+            item.save()
+        elif match[0].total != total:
+            item = match[0]
+            item.item_price = item_price
+            item.item_tax = item_tax
+            item.total = total
             item.save()
 
     def remove(self, product):
@@ -141,7 +147,7 @@ class Order:
         self.order.subtotal = subtotal
         self.order.tax = tax
         if self.order.discount:
-            total = float(total) - float(self.order.discount)
+            total = float(subtotal) - float(self.order.discount)
             if total < 0:
                 total = 0
         self.order.total = total
