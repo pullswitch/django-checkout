@@ -73,6 +73,9 @@ class Processor:
             error = None
         return result.is_success, customer_id, error, result
 
+    def get_customer(self, customer_id):
+        return braintree.Customer.find(customer_id)
+
     def delete_customer(self, customer_id):
         result = braintree.Customer.delete(customer_id)
         return result.is_success
@@ -292,13 +295,17 @@ class Processor:
     def create_subscription(self, customer_id, plan_id, price):
         customer = braintree.Customer.find(customer_id)
         token = customer.credit_cards[0].token
-        search_results = braintree.Subscription.search(
-            braintree.SubscriptionSearch.payment_token == token,
-            braintree.SubscriptionSearch.status == braintree.Subscription.Status.Active
+        # could finding a customer's subscription BE any more awkward?!
+        search_results = braintree.Transaction.search(
+            braintree.TransactionSearch.customer_id == customer_id
         )
         existing = None
-        for item in search_results.items:
-            existing = item.id
+        for result in search_results.items:
+            if result.subscription_id:
+                sub = braintree.Subscription.find(result.subscription_id)
+                if sub.status is braintree.Subscription.Status.Active:
+                    existing = sub.id
+                    continue
         if existing and getattr(settings, "CHECKOUT_ALLOW_PRERENEWAL", False):
             return self.extend_subscription(existing, price, settings.CHECKOUT_PRERENEWAL_DISCOUNT)
 
@@ -312,10 +319,21 @@ class Processor:
 
     can_prerenew = True
 
+    def get_subscription(self, customer_id, status="active"):
+        search_results = braintree.Transaction.search(
+            braintree.TransactionSearch.customer_id == customer_id
+        )
+        for result in search_results.items:
+            if result.subscription_id:
+                sub = braintree.Subscription.find(result.subscription_id)
+                if status != "active" or sub.status == "Active":
+                    return sub
+        return None
+
     def extend_subscription(self, subscription_id, amount, discount_code, billing_cycles=1):
         sub = braintree.Subscription.find(subscription_id)
         if not sub.discounts:
-            braintree.Subscription.update(subscription_id, {
+            update_result = braintree.Subscription.update(subscription_id, {
                 "price": amount,
                 "discounts": {
                     "add": [
@@ -329,7 +347,7 @@ class Processor:
                 }
             })
         else:
-            braintree.Subscription.update(subscription_id, {
+            update_result = braintree.Subscription.update(subscription_id, {
                 "price": amount,
                 "discounts": {
                     "update": [
@@ -341,6 +359,7 @@ class Processor:
                     ]
                 }
             })
+        return update_result
 
     def cancel_subscription(self, subscription_id):
         result = braintree.Subscription.cancel(subscription_id)

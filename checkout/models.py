@@ -14,22 +14,22 @@ from checkout.fields import CurrencyField
 class OrderManager(models.Manager):
 
     def incomplete(self):
-        return super(OrderManager, self).get_query_set().filter(status=Order.INCOMPLETE)
+        return self.filter(status=Order.INCOMPLETE)
 
     def pending_payment(self):
-        return super(OrderManager, self).get_query_set().filter(status=Order.PENDING_PAYMENT)
+        return self.filter(status=Order.PENDING_PAYMENT)
 
     def complete(self):
-        return super(OrderManager, self).get_query_set().filter(status=Order.COMPLETE)
+        return self.filter(status=Order.COMPLETE)
 
     def voided(self):
-        return super(OrderManager, self).get_query_set().filter(status=Order.VOIDED)
+        return self.filter(status=Order.VOIDED)
 
     def refunded(self):
-        return super(OrderManager, self).get_query_set().filter(status=Order.REFUNDED)
+        return self.filter(status=Order.REFUNDED)
 
     def canceled(self):
-        return super(OrderManager, self).get_query_set().filter(status=Order.CANCELED)
+        return self.filter(status=Order.CANCELED)
 
 
 class Order(models.Model):
@@ -195,6 +195,7 @@ class OrderTransaction(models.Model):
 
     class Meta:
         get_latest_by = "creation_date"
+        ordering = ('-creation_date',)
 
     def save(self, **kwargs):
         if not self.pk:
@@ -222,7 +223,7 @@ class Discount(models.Model):
     def __unicode__(self):
         return self.code
 
-    def valid(self):
+    def is_valid(self, user=None):
         if self.active_date and datetime.now() < self.active_date:
             return False
         if self.expire_date and datetime.now() > self.expire_date:
@@ -231,8 +232,9 @@ class Discount(models.Model):
             return False
         if not self.active:
             return False
+        if user and self.user and user != self.user:
+            return False
         return True
-    valid = property(valid)
 
     def associated_orders(self):
         return Order.objects.filter(discount_code=self.code)
