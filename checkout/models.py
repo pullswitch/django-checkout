@@ -1,3 +1,5 @@
+import os
+import base64
 from datetime import datetime
 from decimal import Decimal
 
@@ -238,6 +240,12 @@ class Discount(models.Model):
 
     def associated_orders(self):
         return Order.objects.filter(discount_code=self.code)
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            self.code = base64.b16encode(os.urandom(8))
+
+        super(Discount, self).save(*args, **kwargs)
 
     class Meta:
         ordering = ("active_date", "expire_date", "code")
