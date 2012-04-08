@@ -385,7 +385,10 @@ def order_details(request, pk, **kwargs):
 
     template_name = kwargs.pop("template_name", "checkout/order_detail.html")
     order = get_object_or_404(request.user.orders, pk=pk)
-    transaction = order.transactions.latest()
+    if order.transactions.count():
+        transaction = order.transactions.latest()
+    else:
+        transaction = None
 
     return render_to_response(template_name, {
         "order": order,
