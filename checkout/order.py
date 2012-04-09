@@ -1,6 +1,8 @@
 import datetime
 import models
 
+from django.contrib.contenttypes.models import ContentType
+
 ORDER_ID = 'ORDER-ID'
 
 
@@ -27,9 +29,6 @@ class Order:
                 ))
             except models.Order.DoesNotExist:
                 pass
-        if not order and request.user.is_authenticated():
-            if request.user.orders.incomplete().count():
-                order = request.user.orders.incomplete().latest()
 
         if not order:
             order = self.new(request)
@@ -76,9 +75,11 @@ class Order:
         if item_tax:
             total += quantity * item_tax
         if product:
+            product_content_type = ContentType.objects.get_for_model(product)
             item_search = models.LineItem.objects.filter(
                 order=self.order,
-                product=product,
+                content_type__pk=product_content_type.id,
+                object_id=product.pk,
                 description=description,
                 subscription_plan=subscription_plan
             )
