@@ -2,7 +2,6 @@ import random
 from decimal import Decimal
 
 from django import forms
-from django.conf import settings
 from django.utils.hashcompat import sha_constructor
 from django.utils.translation import ugettext as _
 
@@ -12,14 +11,12 @@ from django.contrib.auth import login
 from django_countries.countries import COUNTRIES
 from uni_form.helpers import FormHelper, Layout, Fieldset, Row, Submit
 
-from checkout.fields import CreditCardField, ExpiryDateField, VerificationValueField
-from checkout.models import Discount
-from checkout.utils import import_from_string
+from .fields import CreditCardField, ExpiryDateField, VerificationValueField
+from .models import Discount
+from .settings import CHECKOUT
+from .utils import import_from_string
 
-BaseSignupForm = import_from_string(getattr(settings,
-    "CHECKOUT_BASE_SIGNUP_FORM",
-    "django.contrib.auth.forms.UserCreationForm"
-))
+BaseSignupForm = import_from_string(CHECKOUT["BASE_SIGNUP_FORM"])
 
 
 class CustomItemForm(forms.Form):
@@ -33,7 +30,7 @@ class CustomItemForm(forms.Form):
         return self.cleaned_data.get("taxable", False)
 
     def tax(self):
-        return Decimal(self.cleaned_data["item_amount"]) * Decimal(getattr(settings, "CHECKOUT_TAX_RATE", .08))
+        return Decimal(self.cleaned_data["item_amount"]) * Decimal(CHECKOUT["TAX_RATE"])
 
     def total(self):
         return Decimal(self.cleaned_data["item_amount"]) + self.tax()
@@ -59,6 +56,8 @@ class PaymentProfileForm(forms.Form):
     phone_number = forms.CharField(max_length=30)
 
     discount_code = forms.CharField(max_length=20, required=False)
+    referral_source = forms.CharField(label=_("How did you hear about us?"), max_length=100, required=False)
+    referral_source_other = forms.CharField(max_length=100, widget=forms.HiddenInput, required=False)
 
     helper = FormHelper()
 
@@ -86,6 +85,13 @@ class PaymentProfileForm(forms.Form):
     def __init__(self, *args, **kwargs):
         super(PaymentProfileForm, self).__init__(*args, **kwargs)
         self.fields["country"].initial = "US"
+        if CHECKOUT["REFERRAL_CHOICES"]:
+            self.fields["referral_source"] = forms.MultipleChoiceField(
+                label=self.fields["referral_source"].label,
+                widget=forms.CheckboxSelectMultiple,
+                choices=CHECKOUT["REFERRAL_CHOICES"],
+                required=False
+            )
 
     def clean_discount_code(self):
         code = self.cleaned_data["discount_code"]

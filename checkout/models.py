@@ -3,14 +3,14 @@ import base64
 from datetime import datetime
 from decimal import Decimal
 
-from django.conf import settings
 from django.db import models
 from django.utils.translation import ugettext_lazy as _
 
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.auth.models import User
 
-from checkout.fields import CurrencyField
+from .fields import CurrencyField
+from .settings import CHECKOUT
 
 
 class OrderManager(models.Manager):
@@ -162,15 +162,7 @@ class OrderTransaction(models.Model):
     VOIDED = "voided"
     REFUNDED = "refunded"
 
-    CREDIT = 1
-    CHECK = 2
-    DISCOUNT = 3
-
-    METHOD_CHOICES = getattr(settings, "CHECKOUT_PAYMENT_METHOD_CHOICES", (
-        (CREDIT, "Credit/Debit"),
-        (CHECK, "Check"),
-        (DISCOUNT, "Discount/Gift Certificate")
-    ))
+    METHOD_CHOICES = CHECKOUT["PAYMENT_METHOD_CHOICES"]
 
     order = models.ForeignKey(Order, related_name="transactions")
 

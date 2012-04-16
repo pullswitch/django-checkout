@@ -1,6 +1,5 @@
 import json
 
-from django.conf import settings
 from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render_to_response
@@ -15,21 +14,17 @@ from django.contrib.auth.decorators import login_required
 from cart.cart import CART_ID
 from cart.models import Cart as CartModel
 
-from checkout.models import Discount, Order as OrderModel, OrderTransaction
-from checkout.order import Order, ORDER_ID
-from checkout.forms import CustomItemForm, PaymentProfileForm
-from checkout.signals import (pre_handle_billing_info, post_handle_billing_info,
+from .models import Discount, Order as OrderModel, OrderTransaction
+from .order import Order, ORDER_ID
+from .forms import CustomItemForm, PaymentProfileForm
+from .settings import CHECKOUT
+from .signals import (pre_handle_billing_info, post_handle_billing_info,
                         pre_charge, post_charge,
                         pre_subscribe, post_subscribe, order_complete)
-from checkout.utils import import_from_string
+from .utils import import_from_string
 
-payment_module = import_module(getattr(settings, "CHECKOUT_PAYMENT_PROCESSOR", "checkout.processors.braintree_processor"))
-SignupForm = import_from_string(
-    getattr(settings,
-        "CHECKOUT_SIGNUP_FORM",
-        "checkout.forms.CheckoutSignupForm"
-    )
-)
+payment_module = import_module(CHECKOUT["PAYMENT_PROCESSOR"])
+SignupForm = import_from_string(CHECKOUT["SIGNUP_FORM"])
 
 
 def info(request,
@@ -75,8 +70,8 @@ def info(request,
                 })
                 checkout_summary["tax"] = custom_form.tax()
                 checkout_summary["total"] = custom_form.total()
-        elif request.POST.get("subscription") and getattr(settings, "CHECKOUT_SUBSCRIPTIONS", False):
-            plan = settings.CHECKOUT_SUBSCRIPTIONS[request.POST.get("subscription")]
+        elif request.POST.get("subscription") and CHECKOUT["SUBSCRIPTIONS"]:
+            plan = CHECKOUT["SUBSCRIPTIONS"][request.POST.get("subscription")]
             checkout_summary["method"] = "subscription"
             checkout_summary["items"].append({
                 "description": plan["description"],

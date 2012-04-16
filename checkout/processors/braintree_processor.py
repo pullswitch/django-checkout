@@ -5,6 +5,8 @@ from django.conf import settings
 
 import braintree
 
+from checkout.settings import CHECKOUT
+
 logger = logging.getLogger("checkout.processors.braintree_processor")
 
 # Configure Braintree
@@ -292,8 +294,8 @@ class Processor:
                 if sub.status is braintree.Subscription.Status.Active:
                     existing = sub.id
                     continue
-        if existing and getattr(settings, "CHECKOUT_ALLOW_PRERENEWAL", False):
-            return self.extend_subscription(existing, price, settings.CHECKOUT_PRERENEWAL_DISCOUNT)
+        if existing and CHECKOUT["ALLOW_PRERENEWAL"]:
+            return self.extend_subscription(existing, price, CHECKOUT["PRERENEWAL_DISCOUNT_CODE"])
 
         data = {
             "payment_method_token": token,
