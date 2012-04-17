@@ -255,6 +255,9 @@ class Processor:
             })
         else:
             return False, None
+        if not result.is_success:
+            errors = result.errors.deep_errors
+            return False, errors
         return result.is_success, result
 
     def refund(self, reference_id, amount=None):

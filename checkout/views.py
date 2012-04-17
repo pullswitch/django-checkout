@@ -14,7 +14,7 @@ from django.contrib.auth.decorators import login_required
 from cart.cart import CART_ID
 from cart.models import Cart as CartModel
 
-from .models import Discount, Order as OrderModel, OrderTransaction
+from .models import Discount, Order as OrderModel, OrderTransaction, Referral
 from .order import Order, ORDER_ID
 from .forms import CustomItemForm, PaymentProfileForm
 from .settings import CHECKOUT
@@ -162,6 +162,16 @@ def info(request,
                     ):
                     abandoned.items.all().delete()
                     abandoned.delete()
+
+                # handle referral source
+                if form.cleaned_data.get("referral_source"):
+                    referral = ", ".join(form.cleaned_data["referral_source"])
+                    if referral == "Other" and form.cleaned_data.get("referral_source_other"):
+                        referral = form.cleaned_data["referral_source_other"]
+                    Referral.objects.create(
+                        order=order.order,
+                        source=referral
+                    )
 
                 if order.order.total > 0 and form.is_valid():
 

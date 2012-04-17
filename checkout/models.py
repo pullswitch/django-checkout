@@ -162,6 +162,10 @@ class OrderTransaction(models.Model):
     VOIDED = "voided"
     REFUNDED = "refunded"
 
+    CREDIT = CHECKOUT["CREDIT"]
+    CHECK = CHECKOUT["CHECK"]
+    DISCOUNT = CHECKOUT["DISCOUNT"]
+
     METHOD_CHOICES = CHECKOUT["PAYMENT_METHOD_CHOICES"]
 
     order = models.ForeignKey(Order, related_name="transactions")
