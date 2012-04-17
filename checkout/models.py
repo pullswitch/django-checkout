@@ -53,13 +53,13 @@ class Order(models.Model):
     total = CurrencyField(_("Total"),
         max_digits=18, decimal_places=10, blank=True, null=True, display_decimal=4)
 
-    discount_code = models.CharField(
-        _("Discount Code"), max_length=20, blank=True, null=True,
-        help_text=_("Coupon Code"))
-    discount = CurrencyField(_("Discount amount"),
+    discount = models.ForeignKey("Discount", blank=True, null=True)
+    discount_amount = CurrencyField(_("Discount amount"),
         max_digits=18, decimal_places=10, blank=True, null=True)
 
     creation_date = models.DateTimeField(verbose_name=_('creation date'))
+
+    referral = models.ForeignKey("Referral", blank=True, null=True)
 
     status = models.CharField(_("Status"), max_length=20, blank=True)
 
@@ -235,7 +235,7 @@ class Discount(models.Model):
         return True
 
     def associated_orders(self):
-        return Order.objects.filter(discount_code=self.code)
+        return self.order_set.all()
 
     def save(self, *args, **kwargs):
         if not self.code:
@@ -248,7 +248,6 @@ class Discount(models.Model):
 
 
 class Referral(models.Model):
-    order = models.ForeignKey(Order)
     source = models.CharField(max_length=100)
 
     def __unicode__(self):

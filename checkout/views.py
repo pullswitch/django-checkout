@@ -168,10 +168,10 @@ def info(request,
                     referral = ", ".join(form.cleaned_data["referral_source"])
                     if referral == "Other" and form.cleaned_data.get("referral_source_other"):
                         referral = form.cleaned_data["referral_source_other"]
-                    Referral.objects.create(
-                        order=order.order,
+                    referral, created = Referral.objects.get_or_create(
                         source=referral
                     )
+                    order.referral = referral
 
                 if order.order.total > 0 and form.is_valid():
 

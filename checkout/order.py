@@ -147,8 +147,8 @@ class Order:
             total += item.total
         self.order.subtotal = subtotal
         self.order.tax = tax
-        if self.order.discount:
-            total = float(subtotal) - float(self.order.discount)
+        if self.order.discount_amount:
+            total = float(subtotal) - float(self.order.discount_amount)
             if total < 0:
                 total = 0
         self.order.total = total
@@ -161,28 +161,26 @@ class Order:
         if self.order.status == self.order.COMPLETE:
             self.complete_order()
 
-    def apply_discount(self, code="", amount=None):
-        if code:
-            discount = models.Discount.objects.get(code=code)
+    def apply_discount(self, discount=None, amount=None):
+        if discount:
             if discount.is_valid(self.order.user):
-                self.order.discount_code = code
+                self.order.discount = discount
                 if discount.amount and discount.amount > 0:
-                    self.order.discount = discount.amount
+                    self.order.discount_amount = discount.amount
                 else:
-                    self.order.discount = float(self.get_total()) * (float(discount.percentage) / 100.00)
+                    self.order.discount_amount = float(self.get_total()) * (float(discount.percentage) / 100.00)
         elif amount:
-            self.order.discount = amount
+            self.order.discount_amount = amount
         self.order.save()
 
     def complete_order(self):
         self.order.status = models.Order.COMPLETE
         self.order.save()
-        if self.order.discount_code:
-            discount = models.Discount.objects.get(code=self.order.discount_code)
-            discount.times_used += 1
-            if discount.user or not discount.is_valid():
-                discount.active = False
-            discount.save()
+        if self.order.discount:
+            self.order.discount.times_used += 1
+            if self.order.discount.user or not self.order.discount.is_valid():
+                self.order.discount.active = False
+            self.order.discount.save()
 
     def clear(self):
         for item in self.order.items.all():
