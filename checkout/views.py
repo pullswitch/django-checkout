@@ -171,7 +171,8 @@ def info(request,
                     referral, created = Referral.objects.get_or_create(
                         source=referral
                     )
-                    order.referral = referral
+                    order.order.referral = referral
+                    order.order.save()
 
                 if order.order.total > 0 and form.is_valid():
 
