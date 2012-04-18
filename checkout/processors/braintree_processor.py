@@ -256,7 +256,10 @@ class Processor:
         else:
             return False, None
         if not result.is_success:
-            errors = result.errors.deep_errors
+            if result.errors.deep_errors:
+                errors = result.errors.deep_errors
+            else:
+                errors = result.transaction.processor_response_text
             return False, errors
         return result.is_success, result
 

@@ -367,7 +367,7 @@ def confirm(request):
             return redirect("checkout_order_details", order.pk)
         else:
             order.update_status(OrderModel.PENDING_PAYMENT)
-            messages.add_message(request, messages.ERROR, data)
+            messages.error(request, "We were unable to process your card for the following reason: {0}".format(data))
 
     return render_to_response("checkout/confirm.html", {
         "order": order.order,
