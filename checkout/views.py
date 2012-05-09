@@ -54,7 +54,7 @@ def info(request,
         billing_data = order.get_transactions().latest()
 
     if order and order.order.discount:
-        checkout_summary["discount"] = order.order.discount
+        checkout_summary["discount"] = order.order.discount_amount
 
     if request.method == "POST":
         if  (request.POST.get("item_description") or
@@ -141,14 +141,14 @@ def info(request,
 
             if request.POST.get("discount_code"):
                 order.apply_discount(request.POST.get("discount_code"))
-                if order.order.discount:
-                    checkout_summary["discount"] = order.order.discount
-                    checkout_summary["total"] -= order.order.discount
+                if order.order.discount_amount:
+                    checkout_summary["discount"] = order.order.discount_amount
+                    checkout_summary["total"] -= order.order.discount_amount
                     OrderTransaction.objects.get_or_create(
                         order=order.order,
-                        amount=order.order.discount,
+                        amount=order.order.discount_amount,
                         payment_method=OrderTransaction.DISCOUNT,
-                        reference_number=order.order.discount_code
+                        reference_number=order.order.discount.code
                     )
 
             order.update_totals()
