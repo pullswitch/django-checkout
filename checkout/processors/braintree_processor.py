@@ -257,7 +257,7 @@ class Processor:
             return False, None
         if not result.is_success:
             if result.errors.deep_errors:
-                errors = result.errors.deep_errors
+                errors = ", ".join(result.errors.deep_errors)
             else:
                 errors = result.transaction.processor_response_text
             return False, errors
@@ -309,6 +309,11 @@ class Processor:
             "price": price,
         }
         sub_result = braintree.Subscription.create(data)
+        if not sub_result.is_success:
+            if sub_result.errors.deep_errors:
+                return False, ", ".join(sub_result.errors.deep_errors)
+            else:
+                return False, sub_result.transaction.processor_response_text
         return sub_result.is_success, sub_result
 
     can_prerenew = True
