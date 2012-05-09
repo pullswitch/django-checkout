@@ -163,12 +163,16 @@ class Order:
 
     def apply_discount(self, discount=None, amount=None):
         if discount:
-            if discount.is_valid(self.order.user):
-                self.order.discount = discount
-                if discount.amount and discount.amount > 0:
-                    self.order.discount_amount = discount.amount
+            try:
+                discount_obj = models.Discount.objects.get(code=discount)
+            except:
+                return
+            if discount_obj.is_valid(self.order.user):
+                self.order.discount = discount_obj
+                if discount_obj.amount and discount_obj.amount > 0:
+                    self.order.discount_amount = discount_obj.amount
                 else:
-                    self.order.discount_amount = float(self.get_total()) * (float(discount.percentage) / 100.00)
+                    self.order.discount_amount = float(self.get_total()) * (float(discount_obj.percentage) / 100.00)
         elif amount:
             self.order.discount_amount = amount
         self.order.save()
