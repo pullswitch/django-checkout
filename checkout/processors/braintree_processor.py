@@ -286,7 +286,7 @@ class Processor:
 
         return result.is_success or False, errors
 
-    def create_subscription(self, customer_id, plan_id, price):
+    def create_subscription(self, customer_id, plan_id, price, start_date=None):
         customer = braintree.Customer.find(customer_id)
         token = customer.credit_cards[0].token
         # could finding a customer's subscription BE any more awkward?!
@@ -308,6 +308,8 @@ class Processor:
             "plan_id": plan_id,
             "price": price,
         }
+        if start_date:
+            data["first_billing_date"] = start_date
         sub_result = braintree.Subscription.create(data)
         if not sub_result.is_success:
             if sub_result.errors.deep_errors:
