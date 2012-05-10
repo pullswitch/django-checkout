@@ -163,11 +163,11 @@ def info(request,
                     abandoned.items.all().delete()
                     abandoned.delete()
 
-                # handle referral source
-                if form.cleaned_data.get("referral_source"):
-                    referral = ", ".join(form.cleaned_data["referral_source"])
-                    if referral == "Other" and form.cleaned_data.get("referral_source_other"):
-                        referral = form.cleaned_data["referral_source_other"]
+                # handle referral source -- use POST in case form is not valid (discount)
+                if request.POST.get("referral_source"):
+                    referral = ", ".join(request.POST["referral_source"])
+                    if referral == "Other" and request.POST.get("referral_source_other"):
+                        referral = request.POST["referral_source_other"]
                     referral, created = Referral.objects.get_or_create(
                         source=referral
                     )

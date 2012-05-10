@@ -83,6 +83,8 @@ class PaymentProfileForm(forms.Form):
     helper.add_input(submit)
 
     def __init__(self, *args, **kwargs):
+        if kwargs.get("user"):
+            self.user = kwargs.pop("user")
         super(PaymentProfileForm, self).__init__(*args, **kwargs)
         self.fields["country"].initial = "US"
         if CHECKOUT["REFERRAL_CHOICES"]:
@@ -97,10 +99,16 @@ class PaymentProfileForm(forms.Form):
         code = self.cleaned_data["discount_code"]
 
         if code:
-            discount = Discount.objects.filter(code__iexact=code)
-            if not discount.count() or not discount[0].valid:
-                raise forms.ValidationError("This is not a valid discount code")
-
+            if Discount.objects.filter(code__iexact=code):
+                discount = Discount.objects.get(code__iexact=code)
+                try:
+                    valid = discount.is_valid(self.user)
+                except:
+                    valid = discount.is_valid()
+                if not valid:
+                    raise forms.ValidationError("This is not a valid redemption code")
+            else:
+                raise forms.ValidationError("This is not a valid redemption code")
         return code
 
 
