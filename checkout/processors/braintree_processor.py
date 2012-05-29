@@ -286,6 +286,27 @@ class Processor:
 
         return result.is_success or False, errors
 
+    def update_card(self, payment_token, data):
+        formatted_expire_date = data.get("expiration_date").strftime("%m/%Y")
+
+        credit_card_data = {
+            "number": data.get("card_number"),
+            "expiration_date": formatted_expire_date,
+            "cvv": data["ccv"],
+            "billing_address": {
+                "street_address": data["address1"],
+                "extended_address": data.get("address2"),
+                "postal_code": data["postal_code"],
+                "locality": data["city"],
+                "region": data["region"],
+                "country_code_alpha2": data["country"],
+            }
+        }
+
+        result = braintree.CreditCard.update(payment_token, credit_card_data)
+
+        return result.is_success or False
+
     def create_subscription(self, customer_id, plan_id, price, start_date=None):
         customer = braintree.Customer.find(customer_id)
         token = customer.credit_cards[0].token
