@@ -1,8 +1,7 @@
 import django.dispatch
 
 
-pre_handle_billing_info = django.dispatch.Signal(providing_args=["user", "payment_data"])
-post_handle_billing_info = django.dispatch.Signal(
+post_create_customer = django.dispatch.Signal(
     providing_args=["user", "success", "reference_id", "error", "results"]
 )
 

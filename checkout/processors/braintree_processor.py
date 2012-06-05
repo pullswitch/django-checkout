@@ -87,11 +87,24 @@ class Processor:
         result = braintree.Customer.delete(customer_id)
         return result.is_success
 
+    def get_customer_card(self, customer_id):
+        try:
+            customer = self.get_customer(customer_id)
+            for card in customer.credit_cards:
+                if card.default:
+                    return card
+            return customer.credit_cards[0]
+        except:
+            return None
+
     def get_payment_details(self, payment_token):
         try:
             return braintree.CreditCard.find(payment_token)
         except:
             return None
+
+    def get_card_last4(self, card_obj):
+        return card_obj.last_4
 
     def get_transaction(self, transaction_id):
         return braintree.Transaction.find(transaction_id)

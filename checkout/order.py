@@ -34,6 +34,7 @@ class Order:
             order = self.new(request)
 
         self.order = order
+        request.session[ORDER_ID] = self.order.pk
 
     def __iter__(self):
         for item in self.order.items.all():
@@ -47,10 +48,7 @@ class Order:
             None
 
     def get_total(self):
-        total = 0
-        for item in self:
-            total += item.total
-        return total
+        return self.order.total
 
     def get_transactions(self):
         return self.order.transactions.all()

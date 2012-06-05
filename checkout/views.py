@@ -1,5 +1,6 @@
 import json
 
+from django.conf import settings
 from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render_to_response
@@ -7,35 +8,175 @@ from django.template import RequestContext
 from django.utils.importlib import import_module
 from django.utils.translation import ugettext_lazy as _
 from django.views.decorators.http import require_POST
+from django.views.generic.edit import FormView
 
-from django.contrib import messages
+from django.contrib import messages, auth
 from django.contrib.auth.decorators import login_required
-
-from cart.cart import CART_ID
-from cart.models import Cart as CartModel
+from django.contrib.auth.models import User
 
 from .models import Discount, Order as OrderModel, OrderTransaction, Referral
 from .order import Order, ORDER_ID
-from .forms import CustomItemForm, PaymentProfileForm
+from .forms import CustomItemForm
 from .settings import CHECKOUT
-from .signals import (pre_handle_billing_info, post_handle_billing_info,
-                        pre_charge, post_charge,
+from .signals import (post_create_customer, pre_charge, post_charge,
                         pre_subscribe, post_subscribe, order_complete)
 from .utils import import_from_string
 
+if "cart" in settings.INSTALLED_APPS:
+    from cart.cart import CART_ID
+    from cart.models import Cart as CartModel
+
 payment_module = import_module(CHECKOUT["PAYMENT_PROCESSOR"])
+PaymentForm = import_from_string(CHECKOUT["PAYMENT_FORM"])
 SignupForm = import_from_string(CHECKOUT["SIGNUP_FORM"])
 
 
-def info(request,
-    payment_form_class=PaymentProfileForm,
+class CheckoutView(FormView):
+
+    """
+    Checkout for a single item (no cart)
+    """
+
+    template_name = "checkout/form.html"
+    template_name_ajax = "checkout/form.html"
+    form_class = PaymentForm
+    form_class_signup = SignupForm
+    processor = payment_module.Processor()
+    method = "direct"
+    messages = {
+        "customer_info_error": {
+            "level": messages.WARNING,
+            "text": _("The billing info could not be verified")
+        }
+    }
+
+    def __init__(self, *args, **kwargs):
+        self.order_obj = Order(self.request)
+        super(CheckoutView, self).__init__(*args, **kwargs)
+
+    def post(self, *args, **kwargs):
+        cf = CustomItemForm(self.request.POST)
+        if cf.is_valid():
+            self.order_obj.add(
+                cf.cleaned_data.get("item_amount"),
+                description=cf.cleaned_data.get("item_description")
+            )
+            self.order_obj.update_totals()
+        if not self.request.user.is_authenticated() and not CHECKOUT["ANONYMOUS_CHECKOUT"]:
+            signup = self.form_class_signup(self.request.POST)
+            if signup.is_valid():
+                user = self.create_user(signup)
+                auth.login(self.request, user)
+
+        return super(CheckoutView, self).post(*args, **kwargs)
+
+    def get_initial(self):
+        initial = super(CheckoutView, self).get_initial()
+        initial["amount"] = self.order_obj.get_total()
+        if self.order_obj.get_transactions().count():
+            billing_data = self.order_obj.get_transactions().latest()
+            initial.update(billing_data)
+        return initial
+
+    def get_context_data(self, **kwargs):
+        ctx = kwargs
+        if self.order_obj.order.discount:
+            ctx["discount"] = self.order_obj.order.discount_amount
+        ctx.update({
+            "checkout_method": self.method,
+            "items": self.order_obj.order.items.all(),
+            "tax": self.order_obj.order.tax,
+            "total": self.order_obj.get_total()
+        })
+
+    def form_valid(self, form):
+        success = self.save_customer_info(form)
+        if success:
+            return redirect(self.get_success_url())
+        else:
+            messages.add_message(
+                self.request,
+                self.messages["customer_info_error"]["level"],
+                self.messages["customer_info_error"]["text"]
+            )
+
+    def form_invalid(self, form):
+        if self.order_obj.get_total() == 0:
+            return redirect(self.get_success_url())
+        super(CheckoutView, self).form_invalid(form)
+
+    def create_user(self, form, commit=True, **kwargs):
+        user = User(**kwargs)
+        username = form.cleaned_data.get("username")
+        if username is None:
+            username = self.generate_username(form)
+        user.username = username
+        user.email = form.cleaned_data["email"].strip()
+        password = form.cleaned_data.get("password")
+        if password:
+            user.set_password(password)
+        else:
+            user.set_unusable_password()
+        if commit:
+            user.save()
+        return user
+
+    def save_customer_info(self, form):
+        payment_data = form.cleaned_data
+        if self.request.user.is_authenticated():
+            payment_data.update({
+                "email": self.request.user.email,
+                "first_name": self.request.user.first_name,
+                "last_name": self.request.user.last_name,
+            })
+
+        success, reference_id, error, results = self.processor.create_customer(
+            payment_data
+        )
+
+        post_create_customer.send(
+            sender=None,
+            user=self.request.user,
+            success=success,
+            reference_id=reference_id,
+            error=error,
+            results=results
+        )
+
+        if success:
+            card_details = self.processor.get_customer_card(reference_id)
+
+            OrderTransaction.objects.get_or_create(
+                order=self.order_obj.order,
+                amount=self.order_obj.order.total,
+                payment_method=OrderTransaction.CREDIT,
+                last_four=self.processor.get_card_last4(card_details),
+                reference_number=reference_id,
+                billing_first_name=form.cleaned_data.get("billing_first_name"),
+                billing_last_name=form.cleaned_data.get("billing_last_name"),
+                billing_address1=form.cleaned_data.get("address1"),
+                billing_address2=form.cleaned_data.get("address2"),
+                billing_city=form.cleaned_data.get("city"),
+                billing_region=form.cleaned_data.get("region"),
+                billing_postal_code=form.cleaned_data.get("postal_code"),
+                billing_country=form.cleaned_data.get("country"),
+            )
+
+            self.order_obj.update_totals()
+            self.order_obj.update_status(OrderModel.PENDING_PAYMENT)
+            return True
+        return False
+
+
+"""def info(request,
+    payment_form_class=PaymentForm,
     signup_form_class=SignupForm,
     empty_cart_url="cart", **kwargs):
 
     template_name = kwargs.get("template_name", "checkout/form.html")
 
     checkout_summary = {
-        "method": "cart",
+        "method": "cart" if "cart" in settings.INSTALLED_APPS else "direct",
         "items": [],
         "discount": 0,
         "tax": 0,
@@ -57,6 +198,9 @@ def info(request,
         checkout_summary["discount"] = order.order.discount_amount
 
     if request.method == "POST":
+
+        pp = payment_module.Processor()
+
         if  (request.POST.get("item_description") or
             request.POST.get("custom_confirm")
         ):
@@ -71,13 +215,24 @@ def info(request,
                 checkout_summary["tax"] = custom_form.tax()
                 checkout_summary["total"] = custom_form.total()
         elif request.POST.get("subscription") and CHECKOUT["SUBSCRIPTIONS"]:
-            plan = CHECKOUT["SUBSCRIPTIONS"][request.POST.get("subscription")]
+            plan = getattr(CHECKOUT["SUBSCRIPTIONS"], request.POST.get("subscription"), None)
             checkout_summary["method"] = "subscription"
-            checkout_summary["items"].append({
-                "description": plan["description"],
-                "amount": plan["rate"],
-                "subscription_plan": plan["plan_id"]
-            })
+            if plan:
+                checkout_summary["items"].append({
+                    "description": plan["description"],
+                    "amount": plan["rate"],
+                    "subscription_plan": plan["plan_id"]
+                })
+            elif CHECKOUT["ALLOW_PLAN_CREATION"]:
+                plan_opts = CHECKOUT["PLAN_OPTIONS_GENERATOR"](
+                    request.POST.get("amount")
+                )
+                plan = pp.create_plan(**plan_opts)
+                checkout_summary["items"].append({
+                    "description": plan["description"],
+                    "amount": plan["rate"],
+                    "subscription_plan": plan["plan_id"]
+                })
             checkout_summary["total"] = plan["rate"]
 
     if checkout_summary["method"] == "cart":
@@ -106,14 +261,21 @@ def info(request,
         request.POST.get("custom_confirm") or
         request.POST.get("subscription_confirm")
     ):
-        if SignupForm:
+        if SignupForm and not CHECKOUT["ANONYMOUS_CHECKOUT"]:
             signup_form = SignupForm(request.POST)
             if signup_form.is_valid() and not request.user.is_authenticated():
+                # @@ user creation needs a new approach
                 try:
                     user = signup_form.save()
                 except:
                     user = signup_form.create_user()
-                signup_form.login(request, user)
+                try:
+                    signup_form.login(request, user)
+                except:
+                    from django.contrib import auth
+                    user.backend = "django.contrib.auth.backends.ModelBackend"
+                    auth.login(request, user)
+                    request.session.set_expiry(0)
 
         form = Form(request.POST)
         if request.user.is_authenticated():
@@ -176,26 +338,16 @@ def info(request,
 
                 if order.order.total > 0 and form.is_valid():
 
-                    pp = payment_module.Processor()
-
                     payment_data = form.cleaned_data
-                    payment_data.update({
-                        "email": request.user.email,
-                        "first_name": request.user.first_name,
-                        "last_name": request.user.last_name,
-                    })
-
-                    customer_id = None
-
-                    pre_handle_billing_info.send(
-                        sender=None,
-                        user=request.user,
-                        payment_data=payment_data,
-                        customer_id=customer_id
-                    )
+                    if request.user.is_authenticated():
+                        payment_data.update({
+                            "email": request.user.email,
+                            "first_name": request.user.first_name,
+                            "last_name": request.user.last_name,
+                        })
 
                     success, reference_id, error, results = pp.create_customer(
-                        payment_data, customer_id=customer_id
+                        payment_data
                     )
 
                     post_handle_billing_info.send(
@@ -209,20 +361,22 @@ def info(request,
 
                     if success:
 
+                        card_details = pp.get_customer_card(reference_id)
+
                         OrderTransaction.objects.get_or_create(
                             order=order.order,
                             amount=order.order.total,
                             payment_method=OrderTransaction.CREDIT,
-                            last_four=form.cleaned_data["card_number"][-4:],
+                            last_four=pp.get_card_last4(card_details),
                             reference_number=reference_id,
-                            billing_first_name=form.cleaned_data["billing_first_name"],
-                            billing_last_name=form.cleaned_data["billing_last_name"],
-                            billing_address1=form.cleaned_data["address1"],
-                            billing_address2=form.cleaned_data["address2"],
-                            billing_city=form.cleaned_data["city"],
-                            billing_region=form.cleaned_data["region"],
-                            billing_postal_code=form.cleaned_data["postal_code"],
-                            billing_country=form.cleaned_data["country"],
+                            billing_first_name=form.cleaned_data.get("billing_first_name"),
+                            billing_last_name=form.cleaned_data.get("billing_last_name"),
+                            billing_address1=form.cleaned_data.get("address1"),
+                            billing_address2=form.cleaned_data.get("address2"),
+                            billing_city=form.cleaned_data.get("city"),
+                            billing_region=form.cleaned_data.get("region"),
+                            billing_postal_code=form.cleaned_data.get("postal_code"),
+                            billing_country=form.cleaned_data.get("country"),
                         )
 
                         order.update_totals()
@@ -245,20 +399,26 @@ def info(request,
                     if hasattr(billing_data, field):
                         form.fields[field].initial = getattr(billing_data, field)
             else:
-                form.fields["billing_first_name"].initial = request.user.first_name
-                form.fields["billing_last_name"].initial = request.user.last_name
-        else:
-            signup_form = SignupForm()
+                if "billing_first_name" in form.fields:
+                    form.fields["billing_first_name"].initial = request.user.first_name
+                if "billing_last_name" in form.fields:
+                    form.fields["billing_last_name"].initial = request.user.last_name
+        elif SignupForm:
+                signup_form = SignupForm()
 
     return render_to_response(template_name, {
         "form": form,
         "signup_form": signup_form,
         "checkout_summary": checkout_summary,
         "order": order
-    }, context_instance=RequestContext(request))
+    }, context_instance=RequestContext(request))"""
 
 
-def confirm(request):
+def confirm(request, **kwargs):
+
+    template_name = kwargs.pop("template_name", "checkout/confirm.html")
+    ajax_template_name = kwargs.pop("template_name", template_name)
+
     try:
         order = Order(request)
         if order.get_transactions().count():
@@ -369,10 +529,21 @@ def confirm(request):
             order.update_status(OrderModel.PENDING_PAYMENT)
             messages.error(request, "We were unable to process your card for the following reason: {0}".format(data))
 
-    return render_to_response("checkout/confirm.html", {
+    context = {
         "order": order.order,
         "transaction": transaction,
-    }, context_instance=RequestContext(request))
+    }
+
+    if request.is_ajax():
+        return render_to_response(
+            ajax_template_name,
+            context_instance=RequestContext(request, context)
+        )
+
+    return render_to_response(
+        template_name,
+        context_instance=RequestContext(request)
+    )
 
 
 @login_required
