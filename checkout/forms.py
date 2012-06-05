@@ -39,8 +39,9 @@ class CustomItemForm(forms.Form):
 class SubscriptionForm(forms.Form):
 
     if CHECKOUT["SUBSCRIPTIONS"]:
+        subs = CHECKOUT["SUBSCRIPTIONS"]
         subscription = forms.ChoiceField(choices=(
-                (s["plan_id"], s["description"]) for s in CHECKOUT["SUBSCRIPTIONS"]
+                (subs[s]["plan_id"], subs[s]["description"]) for s in subs.keys()
             )
         )
     else:
