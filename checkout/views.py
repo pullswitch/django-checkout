@@ -1,30 +1,26 @@
 import json
 
 from django.conf import settings
-from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render_to_response
 from django.template import RequestContext
 from django.utils.importlib import import_module
 from django.utils.translation import ugettext_lazy as _
 from django.views.decorators.http import require_POST
+from django.views.generic import TemplateView
 from django.views.generic.edit import FormView
 
 from django.contrib import messages, auth
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 
-from .models import Discount, Order as OrderModel, OrderTransaction, Referral
+from .models import Discount, Order as OrderModel, OrderTransaction
 from .order import Order, ORDER_ID
-from .forms import CustomItemForm
+from .forms import CustomItemForm, SubscriptionForm
 from .settings import CHECKOUT
-from .signals import (post_create_customer, pre_charge, post_charge,
-                        pre_subscribe, post_subscribe, order_complete)
+from checkout import signals
 from .utils import import_from_string
 
-if "cart" in settings.INSTALLED_APPS:
-    from cart.cart import CART_ID
-    from cart.models import Cart as CartModel
 
 payment_module = import_module(CHECKOUT["PAYMENT_PROCESSOR"])
 PaymentForm = import_from_string(CHECKOUT["PAYMENT_FORM"])
@@ -39,6 +35,7 @@ class CheckoutView(FormView):
 
     template_name = "checkout/form.html"
     template_name_ajax = "checkout/form.html"
+    empty_redirect = "home"
     form_class = PaymentForm
     form_class_signup = SignupForm
     processor = payment_module.Processor()
@@ -50,18 +47,27 @@ class CheckoutView(FormView):
         }
     }
 
-    def __init__(self, *args, **kwargs):
+    def get(self, *args, **kwargs):
         self.order_obj = Order(self.request)
-        super(CheckoutView, self).__init__(*args, **kwargs)
+        if not self.order_obj.order.items.count():
+            return redirect(self.empty_redirect)
+        return super(CheckoutView, self).get(*args, **kwargs)
 
     def post(self, *args, **kwargs):
-        cf = CustomItemForm(self.request.POST)
-        if cf.is_valid():
-            self.order_obj.add(
-                cf.cleaned_data.get("item_amount"),
-                description=cf.cleaned_data.get("item_description")
-            )
-            self.order_obj.update_totals()
+        self.order_obj = Order(self.request)
+        incoming = self.retrieve_item()
+        if incoming:
+            response_kwargs = {
+                "request": self.request,
+                "template": self.template_name,
+                "context": {
+                    "form": self.get_form(self.get_form_class()),
+                    "order": self.order_obj.order,
+                }
+            }
+            return self.response_class(**response_kwargs)
+        elif not self.order_obj.order.items.count():
+            return redirect(self.empty_redirect)
         if not self.request.user.is_authenticated() and not CHECKOUT["ANONYMOUS_CHECKOUT"]:
             signup = self.form_class_signup(self.request.POST)
             if signup.is_valid():
@@ -70,9 +76,20 @@ class CheckoutView(FormView):
 
         return super(CheckoutView, self).post(*args, **kwargs)
 
+    def retrieve_item(self):
+        cf = CustomItemForm(self.request.POST)
+        if cf.is_valid():
+            self.order_obj.add(
+                cf.cleaned_data.get("item_amount"),
+                description=cf.cleaned_data.get("item_description")
+            )
+            self.order_obj.update_totals()
+            return True
+        return False
+
     def get_initial(self):
         initial = super(CheckoutView, self).get_initial()
-        initial["amount"] = self.order_obj.get_total()
+        initial["amount"] = self.order_obj.total
         if self.order_obj.get_transactions().count():
             billing_data = self.order_obj.get_transactions().latest()
             initial.update(billing_data)
@@ -84,12 +101,16 @@ class CheckoutView(FormView):
             ctx["discount"] = self.order_obj.order.discount_amount
         ctx.update({
             "checkout_method": self.method,
-            "items": self.order_obj.order.items.all(),
-            "tax": self.order_obj.order.tax,
-            "total": self.order_obj.get_total()
+            "order": self.order_obj.order,
         })
+        return ctx
 
     def form_valid(self, form):
+        if self.request.POST.get("referral_source"):
+            referral = ", ".join(self.request.POST["referral_source"])
+            if referral == "Other" and self.request.POST.get("referral_source_other"):
+                referral = self.request.POST["referral_source_other"]
+            self.order_obj.add_referral(referral)
         success = self.save_customer_info(form)
         if success:
             return redirect(self.get_success_url())
@@ -99,11 +120,18 @@ class CheckoutView(FormView):
                 self.messages["customer_info_error"]["level"],
                 self.messages["customer_info_error"]["text"]
             )
+            return self.form_invalid(form)
 
     def form_invalid(self, form):
-        if self.order_obj.get_total() == 0:
+        if self.order_obj.total == 0:
             return redirect(self.get_success_url())
-        super(CheckoutView, self).form_invalid(form)
+
+        signals.checkout_attempt.send(
+            sender=self.form_class,
+            order=self.order_obj.order,
+            result=form.is_valid()
+        )
+        return super(CheckoutView, self).form_invalid(form)
 
     def create_user(self, form, commit=True, **kwargs):
         user = User(**kwargs)
@@ -134,7 +162,7 @@ class CheckoutView(FormView):
             payment_data
         )
 
-        post_create_customer.send(
+        signals.post_create_customer.send(
             sender=None,
             user=self.request.user,
             success=success,
@@ -165,6 +193,82 @@ class CheckoutView(FormView):
             self.order_obj.update_totals()
             self.order_obj.update_status(OrderModel.PENDING_PAYMENT)
             return True
+        return False
+
+
+class SubscribeView(CheckoutView):
+
+    method = "subscription"
+
+    def retrieve_item(self):
+        sf = SubscriptionForm(self.request.POST)
+        if sf.is_valid():
+            plan = getattr(
+                CHECKOUT["SUBSCRIPTIONS"],
+                self.request.POST.get("subscription"),
+                None
+            )
+            if not plan and CHECKOUT["ALLOW_PLAN_CREATION"]:
+                plan_opts = CHECKOUT["PLAN_OPTIONS_GENERATOR"](
+                    self.request.POST.get("amount")
+                )
+                plan = self.processor.create_plan(**plan_opts)
+            if plan:
+                self.order_obj.add(
+                    plan["rate"],
+                    description=plan["description"],
+                    subscription_plan=plan["plan_id"]
+                )
+                self.order_obj.update_totals()
+                return True
+        return False
+
+
+class CartView(CheckoutView):
+
+    method = "cart"
+
+    def get(self, *args, **kwargs):
+        from cart.cart import CART_ID
+        from cart.models import Cart as CartModel
+
+        self.order_obj = Order(self.request)
+        cart = CartModel.objects.get(pk=self.request.session[CART_ID])
+        for item in cart.item_set.all():
+            try:
+                self.order_obj.add(
+                    item.unit_price,
+                    product=item.product,
+                    attributes=item.attributesitem
+                )
+            except:
+                self.order_obj.add(
+                    item["amount"],
+                    attributes=item.get("attributes", ""),
+                    description=item["description"]
+                )
+
+        self.order_obj.update_totals()
+        if not self.order_obj.order.items.count():
+            return redirect(self.empty_redirect)
+        return super(CartView, self).get(*args, **kwargs)
+
+    def post(self, *args, **kwargs):
+        self.order_obj = Order(self.request)
+        if self.request.POST.get("discount_code"):
+            self.order_obj.apply_discount(self.request.POST.get("discount_code"))
+        if not self.order_obj.order.items.count():
+            return redirect(self.empty_redirect)
+        if not self.request.user.is_authenticated() and not CHECKOUT["ANONYMOUS_CHECKOUT"]:
+            signup = self.form_class_signup(self.request.POST)
+            if signup.is_valid():
+                user = self.create_user(signup)
+                auth.login(self.request, user)
+
+        return super(CartView, self).post(*args, **kwargs)
+
+    def retrieve_item(self):
+        # items aren't added via post to this view
         return False
 
 
@@ -414,6 +518,136 @@ class CheckoutView(FormView):
     }, context_instance=RequestContext(request))"""
 
 
+class ConfirmView(TemplateView):
+
+    template_name = "checkout/confirm.html"
+    template_name_ajax = "checkout/confirm.html"
+    processor = payment_module.Processor()
+    messages = {
+        "invalid_order": {
+            "level": messages.WARNING,
+            "text": _("Please try your order again")
+        },
+        "processing_failed": {
+            "level": messages.WARNING,
+            "text": _("We were unable to process your card for the following reason: {0}")
+        }
+    }
+
+    def get(self, *args, **kwargs):
+        self.order_obj = Order(self.request)
+        if not self.order_obj.can_complete():
+            return self.invalid_order()
+        try:
+            self.transaction = self.order_obj.get_transactions().latest()
+        except:
+            # this may not be acceptable
+            self.transaction = None
+
+        return super(ConfirmView, self).get(*args, **kwargs)
+
+    def post(self, *args, **kwargs):
+        self.order_obj = Order(self.request)
+        if not self.order_obj.can_complete():
+            return self.invalid_order()
+
+        if self.order_obj.total == 0:
+            success = True
+        elif self.order_obj.order.is_subscription:
+            item = self.order_obj.order.items.all()[0]
+            success, data = self.processor.create_subscription(
+                customer_id=self.transaction.reference_number,
+                plan_id=item.subscription_plan,
+                price=self.transaction.amount
+            )
+        else:
+            success, data = self.processor.charge(
+                self.order_obj.total,
+                customer_id=self.transaction.reference_number
+            )
+
+        if not success:
+            self.transaction.status = self.transaction.FAILED
+            self.transaction.received_data = str(data)
+            self.transaction.save()
+            signals.confirm_attempt.send(
+                sender=None,
+                order=self.order_obj.order,
+                transaction=self.transaction
+            )
+            messages.add_message(
+                self.request,
+                self.messages["processing_failed"]["level"],
+                self.messages["processing_failed"]["text"].format(data)
+            )
+        else:
+            self.transaction.status = self.transaction.SUCCESS
+            self.transaction.save()
+            if self.order_obj.order.is_subscription:
+                signals.subscribe.send(
+                    sender=ConfirmView,
+                    order=self.order_obj.order,
+                    transaction=self.transaction,
+                    request=self.request
+                )
+            else:
+                signals.charge.send(
+                    sender=ConfirmView,
+                    order=self.order_obj.order,
+                    transaction=self.transaction,
+                    request=self.request
+                )
+
+            self.order_obj.update_status(OrderModel.COMPLETE)
+            signals.order_complete.send(
+                sender=ConfirmView,
+                order=self.order_obj.order
+            )
+            if ORDER_ID in self.request.session:
+                del self.request.session[ORDER_ID]
+
+            self.after_order()
+
+        return super(ConfirmView, self).post(*args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        ctx = kwargs
+        ctx.update({
+            "transaction": self.transaction,
+            "order": self.order_obj.order,
+        })
+        return ctx
+
+    def after_order(self):
+        pass
+
+    def invalid_order(self):
+        if self.order_obj.completed:
+            return redirect("checkout_order_details", self.order_obj.pk)
+        if ORDER_ID in self.request.session:
+            del self.request.session[ORDER_ID]
+        messages.add_message(
+            self.request,
+            self.messages["invalid_order"]["level"],
+            self.messages["invalid_order"]["text"]
+        )
+        return redirect("checkout")
+
+
+class CartConfirmView(ConfirmView):
+
+    def after_order(self):
+        from cart.cart import CART_ID
+        from cart.models import Cart as CartModel
+        try:
+            cart = CartModel.objects.get(pk=self.request.session[CART_ID])
+            cart.item_set.all().delete()
+            cart.delete()
+        except:
+            pass
+
+
+"""
 def confirm(request, **kwargs):
 
     template_name = kwargs.pop("template_name", "checkout/confirm.html")
@@ -441,12 +675,12 @@ def confirm(request, **kwargs):
         if order.order.total == 0:
             success = True
             if order.order.is_subscription:
-                pre_subscribe.send(
+                signals.pre_subscribe.send(
                     sender=None,
                     order=order.order,
                     transaction=transaction
                 )
-                post_subscribe.send(
+                signals.post_subscribe.send(
                     sender=None,
                     order=order.order,
                     transaction=transaction,
@@ -463,7 +697,7 @@ def confirm(request, **kwargs):
                 # instead they want you to search by a customer-specific
                 # subscription id. not compatible with stripe's approach
 
-                pre_subscribe.send(
+                signals.pre_subscribe.send(
                     sender=None,
                     order=order.order,
                     transaction=transaction
@@ -479,7 +713,7 @@ def confirm(request, **kwargs):
                 else:
                     transaction.status = transaction.FAILED
 
-                post_subscribe.send(
+                signals.post_subscribe.send(
                     sender=None,
                     order=order.order,
                     transaction=transaction,
@@ -487,7 +721,7 @@ def confirm(request, **kwargs):
                     request=request
                 )
             else:
-                pre_charge.send(
+                signals.pre_charge.send(
                     sender=None,
                     order=order.order,
                     transaction=transaction
@@ -503,7 +737,7 @@ def confirm(request, **kwargs):
                     transaction.status = transaction.FAILED
                 transaction.save()
 
-                post_charge.send(
+                signals.post_charge.send(
                     sender=None,
                     order=order.order,
                     transaction=transaction,
@@ -513,7 +747,7 @@ def confirm(request, **kwargs):
 
         if success:
             order.update_status(OrderModel.COMPLETE)
-            order_complete.send(sender=None, order=order.order)
+            signals.order_complete.send(sender=CheckoutView, order=order.order)
             if ORDER_ID in request.session:
                 del request.session[ORDER_ID]
             try:
@@ -544,6 +778,7 @@ def confirm(request, **kwargs):
         template_name,
         context_instance=RequestContext(request)
     )
+"""
 
 
 @login_required

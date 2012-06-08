@@ -126,7 +126,7 @@ class PaymentForm(BetterForm, SimplePaymentForm):
         if kwargs.get("user"):
             self.user = kwargs.pop("user")
         super(PaymentForm, self).__init__(*args, **kwargs)
-        self.fields["country"].initial = "US"
+        self.fields["billing_country"].initial = "US"
         if CHECKOUT["REFERRAL_CHOICES"]:
             self.fields["referral_source"] = forms.MultipleChoiceField(
                 label=self.fields["referral_source"].label,
