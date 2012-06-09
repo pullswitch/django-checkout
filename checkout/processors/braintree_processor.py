@@ -36,12 +36,12 @@ class Processor:
                 "expiration_date": formatted_expire_date,
                 "cvv": data["ccv"],
                 "billing_address": {
-                    "street_address": data["address1"],
-                    "extended_address": data.get("address2"),
-                    "postal_code": data["postal_code"],
-                    "locality": data["city"],
-                    "region": data["region"],
-                    "country_code_alpha2": data["country"],
+                    "street_address": data.get("billing_address1"),
+                    "extended_address": data.get("billing_address2"),
+                    "postal_code": data.get("billing_postal_code"),
+                    "locality": data.get("billing_city"),
+                    "region": data.get("billing_region"),
+                    "country_code_alpha2": data.get("billing_country"),
                 }
             }
         except:
@@ -63,11 +63,11 @@ class Processor:
         # try:
         if not result:
             result = braintree.Customer.create({
-                "first_name": data["first_name"],
-                "last_name": data["last_name"],
-                "company": data["organization"],
+                "first_name": data.get("first_name") or data.get("billing_first_name"),
+                "last_name": data.get("last_name") or data.get("billing_last_name"),
+                "company": data.get("organization") or data.get("company"),
                 "email": data["email"],
-                "phone": data["phone_number"],
+                "phone": data.get("phone_number"),
                 "credit_card": credit_card_data
             })
         #except:
@@ -87,11 +87,24 @@ class Processor:
         result = braintree.Customer.delete(customer_id)
         return result.is_success
 
+    def get_customer_card(self, customer_id):
+        try:
+            customer = self.get_customer(customer_id)
+            for card in customer.credit_cards:
+                if card.default:
+                    return card
+            return customer.credit_cards[0]
+        except:
+            return None
+
     def get_payment_details(self, payment_token):
         try:
             return braintree.CreditCard.find(payment_token)
         except:
             return None
+
+    def get_card_last4(self, card_obj):
+        return card_obj.last_4
 
     def get_transaction(self, transaction_id):
         return braintree.Transaction.find(transaction_id)

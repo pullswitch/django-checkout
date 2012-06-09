@@ -1,18 +1,23 @@
 import django.dispatch
 
 
-pre_handle_billing_info = django.dispatch.Signal(providing_args=["user", "payment_data"])
-post_handle_billing_info = django.dispatch.Signal(
+checkout_attempt = django.dispatch.Signal(
+    providing_args=["order", "result"]
+)
+
+post_create_customer = django.dispatch.Signal(
     providing_args=["user", "success", "reference_id", "error", "results"]
 )
 
-pre_charge = django.dispatch.Signal(providing_args=["order", "transaction"])
-post_charge = django.dispatch.Signal(
+confirm_attempt = django.dispatch.Signal(
+    providing_args=["order", "transaction"]
+)
+
+charge = django.dispatch.Signal(
     providing_args=["order", "transaction", "success", "data"]
 )
 
-pre_subscribe = django.dispatch.Signal(providing_args=["order", "transaction"])
-post_subscribe = django.dispatch.Signal(
+subscribe = django.dispatch.Signal(
     providing_args=["order", "transaction", "success", "data", "request"]
 )
 

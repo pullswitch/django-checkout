@@ -34,6 +34,7 @@ class Order:
             order = self.new(request)
 
         self.order = order
+        request.session[ORDER_ID] = self.order.pk
 
     def __iter__(self):
         for item in self.order.items.all():
@@ -46,11 +47,19 @@ class Order:
         except:
             None
 
-    def get_total(self):
-        total = 0
-        for item in self:
-            total += item.total
-        return total
+    @property
+    def completed(self):
+        return self.get_status() == models.Order.COMPLETE
+
+    @property
+    def total(self):
+        return self.order.total
+
+    def get_status(self):
+        return self.order.status
+
+    def can_complete(self):
+        return self.get_status() == models.Order.PENDING_PAYMENT
 
     def get_transactions(self):
         return self.order.transactions.all()
@@ -172,9 +181,26 @@ class Order:
                 if discount_obj.amount and discount_obj.amount > 0:
                     self.order.discount_amount = discount_obj.amount
                 else:
-                    self.order.discount_amount = float(self.get_total()) * (float(discount_obj.percentage) / 100.00)
+                    self.order.discount_amount = float(self.total) * (float(discount_obj.percentage) / 100.00)
+                transaction, created = models.OrderTransaction.objects.get_or_create(
+                    order=self.order,
+                    payment_method=models.OrderTransaction.DISCOUNT
+                )
+                if (transaction.amount != self.order.discount_amount or
+                    transaction.reference_number != discount_obj.code):
+                    transaction.amount = self.order.discount_amount
+                    transaction.reference_number = discount_obj.code
+                    transaction.save()
         elif amount:
             self.order.discount_amount = amount
+        self.order.save()
+        self.update_totals()
+
+    def add_referral(self, referral_text):
+        referral, created = models.Referral.objects.get_or_create(
+            source=referral_text
+        )
+        self.order.referral = referral
         self.order.save()
 
     def complete_order(self):

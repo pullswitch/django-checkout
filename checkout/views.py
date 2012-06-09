@@ -1,378 +1,425 @@
 import json
 
-from django.db.models import Q
+from django.core.urlresolvers import reverse
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render_to_response
 from django.template import RequestContext
 from django.utils.importlib import import_module
 from django.utils.translation import ugettext_lazy as _
 from django.views.decorators.http import require_POST
+from django.views.generic import TemplateView
+from django.views.generic.edit import FormView
 
-from django.contrib import messages
+from django.contrib import messages, auth
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.models import User
 
-from cart.cart import CART_ID
-from cart.models import Cart as CartModel
-
-from .models import Discount, Order as OrderModel, OrderTransaction, Referral
+from .models import Discount, Order as OrderModel, OrderTransaction
 from .order import Order, ORDER_ID
-from .forms import CustomItemForm, PaymentProfileForm
+from .forms import CustomItemForm, SubscriptionForm
 from .settings import CHECKOUT
-from .signals import (pre_handle_billing_info, post_handle_billing_info,
-                        pre_charge, post_charge,
-                        pre_subscribe, post_subscribe, order_complete)
+from checkout import signals
 from .utils import import_from_string
 
+
 payment_module = import_module(CHECKOUT["PAYMENT_PROCESSOR"])
+PaymentForm = import_from_string(CHECKOUT["PAYMENT_FORM"])
 SignupForm = import_from_string(CHECKOUT["SIGNUP_FORM"])
 
 
-def info(request,
-    payment_form_class=PaymentProfileForm,
-    signup_form_class=SignupForm,
-    empty_cart_url="cart", **kwargs):
+class CheckoutView(FormView):
 
-    template_name = kwargs.get("template_name", "checkout/form.html")
+    """
+    Checkout for a single item (no cart)
+    """
 
-    checkout_summary = {
-        "method": "cart",
-        "items": [],
-        "discount": 0,
-        "tax": 0,
-        "total": 0
+    template_name = "checkout/form.html"
+    template_name_ajax = "checkout/form.html"
+    empty_redirect = "home"
+    form_class = PaymentForm
+    form_class_signup = SignupForm
+    processor = payment_module.Processor()
+    method = "direct"
+    success_url = "checkout_confirm"
+    messages = {
+        "customer_info_error": {
+            "level": messages.WARNING,
+            "text": _("The billing info could not be verified")
+        }
     }
 
-    billing_data = None
-    order = None
-    signup_form = None
+    def get(self, *args, **kwargs):
+        self.order_obj = Order(self.request)
+        if not self.order_obj.order.items.count():
+            return redirect(self.empty_redirect)
+        return super(CheckoutView, self).get(*args, **kwargs)
 
-    if request.user.is_authenticated():
-        order = Order(request)
+    def post(self, *args, **kwargs):
+        self.order_obj = Order(self.request)
+        incoming = self.retrieve_item()
+        if incoming:
+            form = self.get_form_class()(initial=self.get_initial())
+            return self.render_to_response(self.get_context_data(form=form))
+        elif not self.order_obj.order.items.count():
+            return redirect(self.empty_redirect)
+        if (not self.request.user.is_authenticated() and
+            not CHECKOUT["ANONYMOUS_CHECKOUT"]):
+            signup = self.form_class_signup(self.request.POST)
+            if signup.is_valid():
+                user = self.create_user(signup)
+                auth.login(self.request, user)
 
-    # be helpful and look for stored billing data to autopop with
-    if order and order.get_transactions().count():
-        billing_data = order.get_transactions().latest()
+        return super(CheckoutView, self).post(*args, **kwargs)
 
-    if order and order.order.discount:
-        checkout_summary["discount"] = order.order.discount_amount
+    def retrieve_item(self):
+        cf = CustomItemForm(self.request.POST)
+        if cf.is_valid():
+            self.order_obj.add(
+                cf.cleaned_data.get("item_amount"),
+                description=cf.cleaned_data.get("item_description")
+            )
+            self.order_obj.update_totals()
+            return True
+        return False
 
-    if request.method == "POST":
-        if  (request.POST.get("item_description") or
-            request.POST.get("custom_confirm")
-        ):
-            checkout_summary["method"] = "custom"
-            custom_form = CustomItemForm(request.POST)
-            if custom_form.is_valid():
-                checkout_summary["items"].append({
-                    "description": custom_form.cleaned_data["item_description"],
-                    "amount": custom_form.cleaned_data["item_amount"],
-                    "attributes": custom_form.cleaned_data["item_attributes"]
-                })
-                checkout_summary["tax"] = custom_form.tax()
-                checkout_summary["total"] = custom_form.total()
-        elif request.POST.get("subscription") and CHECKOUT["SUBSCRIPTIONS"]:
-            plan = CHECKOUT["SUBSCRIPTIONS"][request.POST.get("subscription")]
-            checkout_summary["method"] = "subscription"
-            checkout_summary["items"].append({
-                "description": plan["description"],
-                "amount": plan["rate"],
-                "subscription_plan": plan["plan_id"]
+    def get_initial(self):
+        initial = super(CheckoutView, self).get_initial()
+        if self.request.user.is_authenticated():
+            initial.update({
+                "billing_first_name": self.request.user.first_name,
+                "billing_last_name": self.request.user.last_name
             })
-            checkout_summary["total"] = plan["rate"]
+        initial["amount"] = self.order_obj.total
+        if self.order_obj.get_transactions().count():
+            billing_data = self.order_obj.get_transactions().latest()
+            for field_name in self.form_class().fields:
+                if hasattr(billing_data, field_name):
+                    initial[field_name] = getattr(billing_data, field_name)
+        return initial
 
-    if checkout_summary["method"] == "cart":
-        # Look for cart in session
-        # The cart remains active until order is completed
-        try:
-            cart = CartModel.objects.get(pk=request.session[CART_ID])
-            checkout_summary["items"] = cart.item_set.all()
-            checkout_summary["total"] = cart.total
-        except:
-            cart = None
+    def get_context_data(self, **kwargs):
+        ctx = kwargs
+        if self.order_obj.order.discount:
+            ctx["discount"] = self.order_obj.order.discount_amount
+        ctx.update({
+            "checkout_method": self.method,
+            "order": self.order_obj.order,
+        })
+        return ctx
 
-        # No cart and no order == cya
-        if not order and (not cart or not cart.item_set.count()):
-            return redirect(empty_cart_url)
-
-    if not request.user.is_authenticated():
-        # @@ to do: if combo_form_class == None, use login_required approach
-        SignupForm = signup_form_class
-    else:
-        SignupForm = None
-    Form = payment_form_class
-
-    if request.method == "POST" and (
-        checkout_summary["method"] == "cart" or
-        request.POST.get("custom_confirm") or
-        request.POST.get("subscription_confirm")
-    ):
-        if SignupForm:
-            signup_form = SignupForm(request.POST)
-            if signup_form.is_valid() and not request.user.is_authenticated():
-                try:
-                    user = signup_form.save()
-                except:
-                    user = signup_form.create_user()
-                signup_form.login(request, user)
-
-        form = Form(request.POST)
-        if request.user.is_authenticated():
-
-            # create order instance
-            if not order:
-                order = Order(request)
-            request.session[ORDER_ID] = order.pk
-            success = False  # default success flag
-
-            for item in checkout_summary["items"]:
-                try:
-                    order.add(
-                        item.unit_price,
-                        product=item.product,
-                        attributes=item.attributes
-                    )
-                except AttributeError:
-                    order.add(
-                        item["amount"],
-                        attributes=item.get("attributes", ""),
-                        description=item["description"],
-                        subscription_plan=item.get("subscription_plan", "")
-                    )
-
-            if request.POST.get("discount_code"):
-                order.apply_discount(request.POST.get("discount_code"))
-                if order.order.discount_amount:
-                    checkout_summary["discount"] = order.order.discount_amount
-                    checkout_summary["total"] -= order.order.discount_amount
-                    OrderTransaction.objects.get_or_create(
-                        order=order.order,
-                        amount=order.order.discount_amount,
-                        payment_method=OrderTransaction.DISCOUNT,
-                        reference_number=order.order.discount.code
-                    )
-
-            order.update_totals()
-
-            if form.is_valid() or order.order.total == 0:
-                # clean up any old incomplete orders
-                for abandoned in OrderModel.objects.filter(
-                        user=request.user
-                    ).exclude(pk=order.order.pk).filter(
-                        Q(status=OrderModel.PENDING_PAYMENT) | Q(status=OrderModel.INCOMPLETE)
-                    ):
-                    abandoned.items.all().delete()
-                    abandoned.delete()
-
-                # handle referral source -- use POST in case form is not valid (discount)
-                if request.POST.get("referral_source"):
-                    referral = ", ".join(request.POST["referral_source"])
-                    if referral == "Other" and request.POST.get("referral_source_other"):
-                        referral = request.POST["referral_source_other"]
-                    referral, created = Referral.objects.get_or_create(
-                        source=referral
-                    )
-                    order.order.referral = referral
-                    order.order.save()
-
-                if order.order.total > 0 and form.is_valid():
-
-                    pp = payment_module.Processor()
-
-                    payment_data = form.cleaned_data
-                    payment_data.update({
-                        "email": request.user.email,
-                        "first_name": request.user.first_name,
-                        "last_name": request.user.last_name,
-                    })
-
-                    customer_id = None
-
-                    pre_handle_billing_info.send(
-                        sender=None,
-                        user=request.user,
-                        payment_data=payment_data,
-                        customer_id=customer_id
-                    )
-
-                    success, reference_id, error, results = pp.create_customer(
-                        payment_data, customer_id=customer_id
-                    )
-
-                    post_handle_billing_info.send(
-                        sender=None,
-                        user=request.user,
-                        success=success,
-                        reference_id=reference_id,
-                        error=error,
-                        results=results
-                    )
-
-                    if success:
-
-                        OrderTransaction.objects.get_or_create(
-                            order=order.order,
-                            amount=order.order.total,
-                            payment_method=OrderTransaction.CREDIT,
-                            last_four=form.cleaned_data["card_number"][-4:],
-                            reference_number=reference_id,
-                            billing_first_name=form.cleaned_data["billing_first_name"],
-                            billing_last_name=form.cleaned_data["billing_last_name"],
-                            billing_address1=form.cleaned_data["address1"],
-                            billing_address2=form.cleaned_data["address2"],
-                            billing_city=form.cleaned_data["city"],
-                            billing_region=form.cleaned_data["region"],
-                            billing_postal_code=form.cleaned_data["postal_code"],
-                            billing_country=form.cleaned_data["country"],
-                        )
-
-                        order.update_totals()
-                        order.update_status(OrderModel.PENDING_PAYMENT)
-
-                    else:
-                        form._errors.update({"__all__": [error, ]})
-
-                elif order.order.total == 0:
-                    success = True
-
-                if success:
-                    return redirect("checkout_confirm")
-    else:
-        form = Form()
-        if request.user.is_authenticated():
-            signup_form = None
-            if billing_data:
-                for field in form.fields:
-                    if hasattr(billing_data, field):
-                        form.fields[field].initial = getattr(billing_data, field)
-            else:
-                form.fields["billing_first_name"].initial = request.user.first_name
-                form.fields["billing_last_name"].initial = request.user.last_name
+    def form_valid(self, form):
+        if self.request.POST.get("referral_source"):
+            referral = ", ".join(self.request.POST["referral_source"])
+            if referral == "Other" and self.request.POST.get("referral_source_other"):
+                referral = self.request.POST["referral_source_other"]
+            self.order_obj.add_referral(referral)
+        if self.request.user.is_authenticated():
+            form.cleaned_data.update({
+                "email": self.request.user.email,
+                "first_name": self.request.user.first_name,
+                "last_name": self.request.user.last_name,
+            })
+        success = self.save_customer_info(form)
+        if success:
+            return redirect(self.get_success_url())
         else:
-            signup_form = SignupForm()
+            messages.add_message(
+                self.request,
+                self.messages["customer_info_error"]["level"],
+                self.messages["customer_info_error"]["text"]
+            )
+            return self.form_invalid(form)
 
-    return render_to_response(template_name, {
-        "form": form,
-        "signup_form": signup_form,
-        "checkout_summary": checkout_summary,
-        "order": order
-    }, context_instance=RequestContext(request))
+    def form_invalid(self, form):
+        if self.order_obj.total == 0:
+            return redirect(self.get_success_url())
 
+        signals.checkout_attempt.send(
+            sender=self.form_class,
+            order=self.order_obj.order,
+            result=form.is_valid()
+        )
+        return super(CheckoutView, self).form_invalid(form)
 
-def confirm(request):
-    try:
-        order = Order(request)
-        if order.get_transactions().count():
-            transaction = order.get_transactions().latest()
+    def create_user(self, form, commit=True, **kwargs):
+        user = User(**kwargs)
+        username = form.cleaned_data.get("username")
+        if username is None:
+            username = self.generate_username(form)
+        user.username = username
+        user.email = form.cleaned_data["email"].strip()
+        password = form.cleaned_data.get("password")
+        if password:
+            user.set_password(password)
         else:
-            transaction = None
-    except:
-        return redirect("checkout")
+            user.set_unusable_password()
+        if commit:
+            user.save()
+        return user
 
-    if order.order.status not in (OrderModel.INCOMPLETE, OrderModel.PENDING_PAYMENT):
-        if ORDER_ID in request.session:
-            del request.session[ORDER_ID]
-        if order.order.status == OrderModel.COMPLETE:
-            return redirect("checkout_order_details", order.pk)
-        messages.add_message(request, messages.WARNING, _("Please try your order again"))
-        redirect("checkout")
+    def save_customer_info(self, form):
+        payment_data = form.cleaned_data
+        if self.request.user.is_authenticated():
+            payment_data.update({
+                "email": self.request.user.email,
+                "first_name": self.request.user.first_name,
+                "last_name": self.request.user.last_name,
+            })
 
-    if request.method == "POST" or order.order.total == 0:
+        success, reference_id, error, results = self.processor.create_customer(
+            payment_data
+        )
 
-        if order.order.total == 0:
-            success = True
-            if order.order.is_subscription:
-                pre_subscribe.send(
-                    sender=None,
-                    order=order.order,
-                    transaction=transaction
-                )
-                post_subscribe.send(
-                    sender=None,
-                    order=order.order,
-                    transaction=transaction,
-                    request=request
-                )
-        else:
-            pp = payment_module.Processor()
-
-            if order.order.is_subscription:
-
-                # look for existing subs
-                # @@ problem: stripe makes it easy to check
-                # a customer for sub; braintree seemingly does not;
-                # instead they want you to search by a customer-specific
-                # subscription id. not compatible with stripe's approach
-
-                pre_subscribe.send(
-                    sender=None,
-                    order=order.order,
-                    transaction=transaction
-                )
-                item = order.order.items.all()[0]
-                success, data = pp.create_subscription(
-                    customer_id=transaction.reference_number,
-                    plan_id=item.subscription_plan,
-                    price=transaction.amount
-                )
-                if success:
-                    transaction.status = transaction.COMPLETE
-                else:
-                    transaction.status = transaction.FAILED
-
-                post_subscribe.send(
-                    sender=None,
-                    order=order.order,
-                    transaction=transaction,
-                    data=data,
-                    request=request
-                )
-            else:
-                pre_charge.send(
-                    sender=None,
-                    order=order.order,
-                    transaction=transaction
-                )
-
-                success, data = pp.charge(order.order.total, customer_id=transaction.reference_number)
-
-                # NOTE: if trans failed, data == error code + verbose error message
-                transaction.received_data = str(data)
-                if success:
-                    transaction.status = transaction.COMPLETE
-                else:
-                    transaction.status = transaction.FAILED
-                transaction.save()
-
-                post_charge.send(
-                    sender=None,
-                    order=order.order,
-                    transaction=transaction,
-                    success=success,
-                    data=data
-                )
+        signals.post_create_customer.send(
+            sender=None,
+            user=self.request.user,
+            success=success,
+            reference_id=reference_id,
+            error=error,
+            results=results
+        )
 
         if success:
-            order.update_status(OrderModel.COMPLETE)
-            order_complete.send(sender=None, order=order.order)
-            if ORDER_ID in request.session:
-                del request.session[ORDER_ID]
+            card_details = self.processor.get_customer_card(reference_id)
+
+            OrderTransaction.objects.get_or_create(
+                order=self.order_obj.order,
+                amount=self.order_obj.order.total,
+                payment_method=OrderTransaction.CREDIT,
+                last_four=self.processor.get_card_last4(card_details),
+                reference_number=reference_id,
+                billing_first_name=form.cleaned_data.get("billing_first_name"),
+                billing_last_name=form.cleaned_data.get("billing_last_name"),
+                billing_address1=form.cleaned_data.get("billing_address1"),
+                billing_address2=form.cleaned_data.get("billing_address2"),
+                billing_city=form.cleaned_data.get("billing_city"),
+                billing_region=form.cleaned_data.get("billing_region"),
+                billing_postal_code=form.cleaned_data.get("billing_postal_code"),
+                billing_country=form.cleaned_data.get("billing_country"),
+            )
+
+            self.order_obj.update_totals()
+            self.order_obj.update_status(OrderModel.PENDING_PAYMENT)
+            return True
+        return False
+
+
+class SubscribeView(CheckoutView):
+
+    method = "subscription"
+
+    def retrieve_item(self):
+        sf = SubscriptionForm(self.request.POST)
+        if sf.is_valid():
+            plan = None
+            if self.request.POST.get("subscription") in CHECKOUT["SUBSCRIPTIONS"]:
+                plan = CHECKOUT["SUBSCRIPTIONS"][
+                    self.request.POST.get("subscription")
+                ]
+            if not plan and CHECKOUT["ALLOW_PLAN_CREATION"]:
+                plan_opts = CHECKOUT["PLAN_OPTIONS_GENERATOR"](
+                    self.request.POST.get("amount")
+                )
+                plan = self.processor.create_plan(**plan_opts)
+            if plan:
+                self.order_obj.add(
+                    plan["rate"],
+                    description=plan["description"],
+                    subscription_plan=plan["plan_id"]
+                )
+                self.order_obj.update_totals()
+                return True
+        return False
+
+
+class CartCheckoutView(CheckoutView):
+
+    method = "cart"
+
+    def get(self, *args, **kwargs):
+        from cart.cart import CART_ID
+        from cart.models import Cart as CartModel
+
+        self.order_obj = Order(self.request)
+        # clear pre-existing items
+        self.order_obj.clear()
+        cart = CartModel.objects.get(pk=self.request.session[CART_ID])
+        for item in cart.item_set.all():
             try:
-                cart = CartModel.objects.get(pk=request.session[CART_ID])
-                cart.item_set.all().delete()
-                cart.delete()
+                self.order_obj.add(
+                    item.unit_price,
+                    product=item.product,
+                    attributes=item.attributes
+                )
             except:
-                pass
-            messages.add_message(request, messages.SUCCESS, _("Your order was successful. Thanks for your business!"))
+                self.order_obj.add(
+                    item["amount"],
+                    attributes=item.get("attributes", ""),
+                    description=item["description"]
+                )
 
-            return redirect("checkout_order_details", order.pk)
+        self.order_obj.update_totals()
+        if not self.order_obj.order.items.count():
+            return redirect(self.empty_redirect)
+        return super(CartCheckoutView, self).get(*args, **kwargs)
+
+    def post(self, *args, **kwargs):
+        self.order_obj = Order(self.request)
+        if self.request.POST.get("discount_code"):
+            self.order_obj.apply_discount(self.request.POST.get("discount_code"))
+        if not self.order_obj.order.items.count():
+            return redirect(self.empty_redirect)
+        if not self.request.user.is_authenticated() and not CHECKOUT["ANONYMOUS_CHECKOUT"]:
+            signup = self.form_class_signup(self.request.POST)
+            if signup.is_valid():
+                user = self.create_user(signup)
+                auth.login(self.request, user)
+
+        return super(CartCheckoutView, self).post(*args, **kwargs)
+
+    def retrieve_item(self):
+        # items aren't added via post to this view
+        return False
+
+
+class ConfirmView(TemplateView):
+
+    template_name = "checkout/confirm.html"
+    template_name_ajax = "checkout/confirm.html"
+    processor = payment_module.Processor()
+    success_url = "checkout_confirm"  # redirects to order page
+    messages = {
+        "invalid_order": {
+            "level": messages.WARNING,
+            "text": _("Please try your order again")
+        },
+        "processing_failed": {
+            "level": messages.WARNING,
+            "text": _("We were unable to process your card for the following reason: {0}")
+        }
+    }
+
+    def get(self, *args, **kwargs):
+        self.order_obj = Order(self.request)
+        if not self.order_obj.can_complete():
+            return self.invalid_order()
+        try:
+            self.transaction = self.order_obj.get_transactions().latest()
+        except:
+            # this may not be acceptable
+            self.transaction = None
+
+        return super(ConfirmView, self).get(*args, **kwargs)
+
+    def post(self, *args, **kwargs):
+        self.order_obj = Order(self.request)
+        try:
+            self.transaction = self.order_obj.get_transactions().latest()
+        except:
+            # this may not be acceptable
+            self.transaction = None
+        if not self.order_obj.can_complete():
+            return self.invalid_order()
+
+        if self.order_obj.total == 0:
+            success = True
+        elif self.order_obj.order.is_subscription:
+            item = self.order_obj.order.items.all()[0]
+            success, data = self.processor.create_subscription(
+                customer_id=self.transaction.reference_number,
+                plan_id=item.subscription_plan,
+                price=self.transaction.amount
+            )
         else:
-            order.update_status(OrderModel.PENDING_PAYMENT)
-            messages.error(request, "We were unable to process your card for the following reason: {0}".format(data))
+            success, data = self.processor.charge(
+                self.order_obj.total,
+                customer_id=self.transaction.reference_number
+            )
 
-    return render_to_response("checkout/confirm.html", {
-        "order": order.order,
-        "transaction": transaction,
-    }, context_instance=RequestContext(request))
+        if not success:
+            self.transaction.status = self.transaction.FAILED
+            self.transaction.received_data = str(data)
+            self.transaction.save()
+            signals.confirm_attempt.send(
+                sender=None,
+                order=self.order_obj.order,
+                transaction=self.transaction
+            )
+            messages.add_message(
+                self.request,
+                self.messages["processing_failed"]["level"],
+                self.messages["processing_failed"]["text"].format(data)
+            )
+        else:
+            self.transaction.status = self.transaction.COMPLETE
+            self.transaction.save()
+            if self.order_obj.order.is_subscription:
+                signals.subscribe.send(
+                    sender=ConfirmView,
+                    order=self.order_obj.order,
+                    transaction=self.transaction,
+                    request=self.request
+                )
+            else:
+                signals.charge.send(
+                    sender=ConfirmView,
+                    order=self.order_obj.order,
+                    transaction=self.transaction,
+                    request=self.request
+                )
+
+            self.order_obj.update_status(OrderModel.COMPLETE)
+            signals.order_complete.send(
+                sender=ConfirmView,
+                order=self.order_obj.order
+            )
+            if ORDER_ID in self.request.session:
+                del self.request.session[ORDER_ID]
+
+            self.after_order()
+
+        return redirect(self.get_success_url(self.order_obj.pk))
+
+    def get_context_data(self, **kwargs):
+        ctx = kwargs
+        ctx.update({
+            "transaction": self.transaction,
+            "order": self.order_obj.order,
+        })
+        return ctx
+
+    def after_order(self):
+        pass
+
+    def invalid_order(self):
+        if self.order_obj.completed:
+            return redirect("checkout_order_details", self.order_obj.pk)
+        if ORDER_ID in self.request.session:
+            del self.request.session[ORDER_ID]
+        messages.add_message(
+            self.request,
+            self.messages["invalid_order"]["level"],
+            self.messages["invalid_order"]["text"]
+        )
+        return redirect("checkout")
+
+    def get_success_url(self, pk):
+        return reverse("checkout_order_details", kwargs={"pk": pk})
+
+
+class CartConfirmView(ConfirmView):
+
+    def after_order(self):
+        from cart.cart import CART_ID
+        from cart.models import Cart as CartModel
+        try:
+            cart = CartModel.objects.get(pk=self.request.session[CART_ID])
+            cart.item_set.all().delete()
+            cart.delete()
+        except:
+            pass
+        if "cart_count" in self.request.session:
+            del self.request.session["cart_count"]
 
 
 @login_required
