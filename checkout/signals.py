@@ -9,6 +9,8 @@ post_create_customer = django.dispatch.Signal(
     providing_args=["user", "success", "reference_id", "error", "results"]
 )
 
+user_signed_up = django.dispatch.Signal(providing_args=["user", "form"])
+
 confirm_attempt = django.dispatch.Signal(
     providing_args=["order", "transaction"]
 )

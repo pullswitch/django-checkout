@@ -124,6 +124,7 @@ class CheckoutView(FormView):
             auth.login(self.request, user)
             self.order_obj.order.user = user
             self.order_obj.order.save()
+            self.after_signup(user, form)
 
         if self.request.user.is_authenticated():
             form.cleaned_data.update({
@@ -169,6 +170,9 @@ class CheckoutView(FormView):
         if commit:
             user.save()
         return user
+
+    def after_signup(self, user, form):
+        signals.user_signed_up.send(sender=SignupForm, user=user, form=form)
 
     def save_customer_info(self, form):
         payment_data = form.cleaned_data
