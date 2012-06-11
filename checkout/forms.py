@@ -150,3 +150,7 @@ class PaymentForm(BetterForm, SimplePaymentForm):
             else:
                 raise forms.ValidationError("This is not a valid redemption code")
         return code
+
+
+class PaymentSignupForm(BaseSignupForm, PaymentForm):
+    pass

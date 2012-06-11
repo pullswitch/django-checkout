@@ -52,22 +52,22 @@ class CheckoutView(FormView):
         self.order_obj = Order(self.request)
         if not self.order_obj.order.items.count():
             return redirect(self.empty_redirect)
+        if (not self.request.user.is_authenticated() and
+            not CHECKOUT["ANONYMOUS_CHECKOUT"]):
+            self.form_class = self.form_class_signup
         return super(CheckoutView, self).get(*args, **kwargs)
 
     def post(self, *args, **kwargs):
         self.order_obj = Order(self.request)
+        if (not self.request.user.is_authenticated() and
+            not CHECKOUT["ANONYMOUS_CHECKOUT"]):
+            self.form_class = self.form_class_signup
         incoming = self.retrieve_item()
         if incoming:
             form = self.get_form_class()(initial=self.get_initial())
             return self.render_to_response(self.get_context_data(form=form))
         elif not self.order_obj.order.items.count():
             return redirect(self.empty_redirect)
-        if (not self.request.user.is_authenticated() and
-            not CHECKOUT["ANONYMOUS_CHECKOUT"]):
-            signup = self.form_class_signup(self.request.POST)
-            if signup.is_valid():
-                user = self.create_user(signup)
-                auth.login(self.request, user)
 
         return super(CheckoutView, self).post(*args, **kwargs)
 
@@ -113,12 +113,25 @@ class CheckoutView(FormView):
             if referral == "Other" and self.request.POST.get("referral_source_other"):
                 referral = self.request.POST["referral_source_other"]
             self.order_obj.add_referral(referral)
+
+        if (not self.request.user.is_authenticated() and
+            not CHECKOUT["ANONYMOUS_CHECKOUT"]):
+            user = self.create_user(form)
+            user = auth.authenticate(
+                username=user.username,
+                password=form.cleaned_data["password"]
+            )
+            auth.login(self.request, user)
+            self.order_obj.order.user = user
+            self.order_obj.order.save()
+
         if self.request.user.is_authenticated():
             form.cleaned_data.update({
                 "email": self.request.user.email,
                 "first_name": self.request.user.first_name,
                 "last_name": self.request.user.last_name,
             })
+
         success = self.save_customer_info(form)
         if success:
             return redirect(self.get_success_url())
@@ -267,13 +280,6 @@ class CartCheckoutView(CheckoutView):
         self.order_obj = Order(self.request)
         if self.request.POST.get("discount_code"):
             self.order_obj.apply_discount(self.request.POST.get("discount_code"))
-        if not self.order_obj.order.items.count():
-            return redirect(self.empty_redirect)
-        if not self.request.user.is_authenticated() and not CHECKOUT["ANONYMOUS_CHECKOUT"]:
-            signup = self.form_class_signup(self.request.POST)
-            if signup.is_valid():
-                user = self.create_user(signup)
-                auth.login(self.request, user)
 
         return super(CartCheckoutView, self).post(*args, **kwargs)
 

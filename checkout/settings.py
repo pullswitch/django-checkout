@@ -13,7 +13,7 @@ CHECKOUT = {
     "ANONYMOUS_CHECKOUT": False,
     "PRERENEWAL_DISCOUNT_CODE": None,
     "BASE_SIGNUP_FORM": "django.contrib.auth.forms.UserCreationForm",
-    "SIGNUP_FORM": "django.contrib.auth.forms.UserCreationForm",
+    "SIGNUP_FORM": "checkout.forms.PaymentSignupForm",
     "REFERRAL_CHOICES": None,
     "TAX_RATE": 0.8,
     "CREDIT": 1,
