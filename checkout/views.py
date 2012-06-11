@@ -239,6 +239,7 @@ class SubscribeView(CheckoutView):
                 )
                 plan = self.processor.create_plan(**plan_opts)
             if plan:
+                self.order_obj.clear()
                 self.order_obj.add(
                     plan["rate"],
                     description=plan["description"],
@@ -260,22 +261,23 @@ class CartCheckoutView(CheckoutView):
         self.order_obj = Order(self.request)
         # clear pre-existing items
         self.order_obj.clear()
-        cart = CartModel.objects.get(pk=self.request.session[CART_ID])
-        for item in cart.item_set.all():
-            try:
-                self.order_obj.add(
-                    item.unit_price,
-                    product=item.product,
-                    attributes=item.attributes
-                )
-            except:
-                self.order_obj.add(
-                    item["amount"],
-                    attributes=item.get("attributes", ""),
-                    description=item["description"]
-                )
+        if CART_ID in self.request.session:
+            cart = CartModel.objects.get(pk=self.request.session[CART_ID])
+            for item in cart.item_set.all():
+                try:
+                    self.order_obj.add(
+                        item.unit_price,
+                        product=item.product,
+                        attributes=item.attributes
+                    )
+                except:
+                    self.order_obj.add(
+                        item["amount"],
+                        attributes=item.get("attributes", ""),
+                        description=item["description"]
+                    )
 
-        self.order_obj.update_totals()
+            self.order_obj.update_totals()
         if not self.order_obj.order.items.count():
             return redirect(self.empty_redirect)
         return super(CartCheckoutView, self).get(*args, **kwargs)
