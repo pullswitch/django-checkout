@@ -390,7 +390,9 @@ class ConfirmView(TemplateView):
 
             self.after_order()
 
-        return redirect(self.get_success_url(self.order_obj.pk))
+            return redirect(self.get_success_url(self.order_obj.pk))
+
+        return self.render_to_response(self.get_context_data())
 
     def get_context_data(self, **kwargs):
         ctx = kwargs
@@ -463,9 +465,15 @@ def order_details(request, pk, **kwargs):
 
 @require_POST
 def lookup_discount_code(request):
+    amount = 0
     try:
-        discount = Discount.objects.get(code=request.POST.get("discount_code"))
-        amount = discount.amount
+        discount = Discount.objects.get(
+            code=request.POST.get("discount_code")
+        )
+        if not discount.uses_limit or (
+            discount.uses_limit < discount.times_used
+        ):
+            amount = discount.amount
     except:
-        amount = 0
+        pass
     return HttpResponse(json.dumps({"discount": str(amount)}), mimetype="application/json")
