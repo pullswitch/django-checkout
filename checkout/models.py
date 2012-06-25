@@ -44,6 +44,7 @@ class Order(models.Model):
     CANCELED = "canceled"
 
     user = models.ForeignKey(User, null=True, related_name="orders")
+    customer_id = models.CharField(max_length=50, blank=True, null=True)
     notes = models.TextField(_("Notes"), blank=True, null=True)
 
     subtotal = CurrencyField(_("Subtotal"),

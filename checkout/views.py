@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 
 from django.core.urlresolvers import reverse
 from django.http import HttpResponse
@@ -63,6 +64,10 @@ class CheckoutView(FormView):
             not CHECKOUT["ANONYMOUS_CHECKOUT"]):
             self.form_class = self.form_class_signup
         incoming = self.retrieve_item()
+
+        return self.post_handler(incoming, *args, **kwargs)
+
+    def post_handler(self, incoming, *args, **kwargs):
         if incoming:
             form = self.get_form_class()(initial=self.get_initial())
             return self.render_to_response(self.get_context_data(form=form))
@@ -184,7 +189,8 @@ class CheckoutView(FormView):
             })
 
         success, reference_id, error, results = self.processor.create_customer(
-            payment_data
+            payment_data,
+            customer_id=self.order_obj.order.customer_id
         )
 
         signals.post_create_customer.send(
@@ -197,6 +203,8 @@ class CheckoutView(FormView):
         )
 
         if success:
+            self.order_obj.order.customer_id = reference_id
+            self.order_obj.order.save()
             card_details = self.processor.get_customer_card(reference_id)
 
             OrderTransaction.objects.get_or_create(
@@ -205,14 +213,18 @@ class CheckoutView(FormView):
                 payment_method=OrderTransaction.CREDIT,
                 last_four=self.processor.get_card_last4(card_details),
                 reference_number=reference_id,
-                billing_first_name=form.cleaned_data.get("billing_first_name"),
-                billing_last_name=form.cleaned_data.get("billing_last_name"),
-                billing_address1=form.cleaned_data.get("billing_address1"),
-                billing_address2=form.cleaned_data.get("billing_address2"),
-                billing_city=form.cleaned_data.get("billing_city"),
-                billing_region=form.cleaned_data.get("billing_region"),
-                billing_postal_code=form.cleaned_data.get("billing_postal_code"),
-                billing_country=form.cleaned_data.get("billing_country"),
+                billing_first_name=form.cleaned_data.get("billing_first_name") or\
+                    form.cleaned_data.get("first_name") or\
+                    self.request.user.first_name,
+                billing_last_name=form.cleaned_data.get("billing_last_name") or\
+                    form.cleaned_data.get("last_name") or \
+                    self.request.user.last_name,
+                billing_address1=form.cleaned_data.get("billing_address1", ""),
+                billing_address2=form.cleaned_data.get("billing_address2", ""),
+                billing_city=form.cleaned_data.get("billing_city", ""),
+                billing_region=form.cleaned_data.get("billing_region", ""),
+                billing_postal_code=form.cleaned_data.get("billing_postal_code", ""),
+                billing_country=form.cleaned_data.get("billing_country", ""),
             )
 
             self.order_obj.update_totals()
@@ -227,23 +239,28 @@ class SubscribeView(CheckoutView):
 
     def retrieve_item(self):
         sf = SubscriptionForm(self.request.POST)
-        if sf.is_valid():
+        if sf.is_valid() or (
+            CHECKOUT["ALLOW_PLAN_CREATION"] and
+            self.request.POST.get("amount")
+        ):
             plan = None
-            if self.request.POST.get("subscription") in CHECKOUT["SUBSCRIPTIONS"]:
+            if CHECKOUT["SUBSCRIPTIONS"] and (
+                self.request.POST.get("subscription") in CHECKOUT["SUBSCRIPTIONS"]
+            ):
                 plan = CHECKOUT["SUBSCRIPTIONS"][
                     self.request.POST.get("subscription")
                 ]
             if not plan and CHECKOUT["ALLOW_PLAN_CREATION"]:
                 plan_opts = CHECKOUT["PLAN_OPTIONS_GENERATOR"](
-                    self.request.POST.get("amount")
+                    Decimal(self.request.POST.get("amount"))
                 )
                 plan = self.processor.create_plan(**plan_opts)
             if plan:
                 self.order_obj.clear()
                 self.order_obj.add(
-                    plan["rate"],
-                    description=plan["description"],
-                    subscription_plan=plan["plan_id"]
+                    plan["amount"],
+                    description=plan["name"],
+                    subscription_plan=plan["id"]
                 )
                 self.order_obj.update_totals()
                 return True

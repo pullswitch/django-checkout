@@ -20,13 +20,17 @@ class Processor:
             self.user = kwargs.pop("user")
 
     def create_plan(self, interval, amount, id, name, currency="usd"):
-
-        return stripe.Plan.create(
-            amount=amount,
-            interval=interval,
-            name=name,
-            currency=currency,
-            id=id)
+        # convert our amount to CENTS as integer
+        amount = int(amount * 100)
+        try:
+            return stripe.Plan.retrieve(id)
+        except:
+            return stripe.Plan.create(
+                amount=amount,
+                interval=interval,
+                name=name,
+                currency=currency,
+                id=id)
 
     def create_token(self, number, exp_month, exp_year, cvc, currency="usd"):
         return stripe.Token.create(
@@ -41,12 +45,12 @@ class Processor:
 
     def create_customer(self, data, customer_id=None):
 
-        # expiration date is date due to different formatting requirements
-        expire_month = data.get("expiration_date").strftime("%m")
-        expire_year = data.get("expiration_date").strftime("%Y")
-
         token = data.get("token")
         if not token:
+
+            # expiration date is date due to different formatting requirements
+            expire_month = data.get("expiration_date").strftime("%m")
+            expire_year = data.get("expiration_date").strftime("%Y")
 
             token = self.create_token(**{
                 "number": data.get("card_number"),
@@ -69,8 +73,10 @@ class Processor:
                 email=data["email"],
                 card=token
             )
+            print result
         except:
-            return False, None, _("An error occurred while creating the customer record"), result
+            print "error"
+            return False, None, _("An error occurred while creating the customer record"), None
 
         return True, result["id"], None, result
 
@@ -88,7 +94,7 @@ class Processor:
     def get_customer_card(self, customer_id):
         try:
             customer = self.get_customer(customer_id)
-            return self.get_payment_details(customer.active_card)
+            return customer.active_card
         except:
             return None
 
@@ -98,8 +104,8 @@ class Processor:
         except:
             return None
 
-    def get_card_last4(self, token_obj):
-        return token_obj.card.last4
+    def get_card_last4(self, card_obj):
+        return card_obj.last4
 
     def get_transaction(self, transaction_id):
         return stripe.Charge.retrieve(transaction_id)
@@ -107,6 +113,9 @@ class Processor:
     def charge(self, amount, data=None, customer_id=None, payment_token=None):
 
         result = None
+
+        # convert our amount to CENTS as integer
+        amount = int(amount * 100)
 
         if customer_id:
             result = stripe.Charge.create(
@@ -174,6 +183,7 @@ class Processor:
         except:
             return False, "No matching customer found"
         cu.update_subscription(plan=plan_id, prorate=PRORATE)
+        return True, cu
 
     can_prerenew = False
 

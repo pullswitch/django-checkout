@@ -1,7 +1,15 @@
 from django.conf import settings
 
 CHECKOUT = {
-    "SUBSCRIPTIONS": None,
+    "SUBSCRIPTIONS": None or {
+        "sample": {
+                "plan_id": "sample-plan",
+                "name": "Monthly Subscription",
+                "amount": 29,
+                "prorate": False,
+                "cancel": "natural"  # or "force"
+            }
+    },
     "ALLOW_PRERENEWAL": False,
     "ALLOW_PLAN_CREATION": False,
     "PLAN_OPTIONS_GENERATOR": lambda x: {
