@@ -41,7 +41,7 @@ class SubscriptionForm(forms.Form):
     if CHECKOUT["SUBSCRIPTIONS"]:
         subscription = forms.ChoiceField(choices=(
                 (CHECKOUT["SUBSCRIPTIONS"][s]["plan_id"],
-                CHECKOUT["SUBSCRIPTIONS"][s]["description"])
+                CHECKOUT["SUBSCRIPTIONS"][s]["name"])
                 for s in CHECKOUT["SUBSCRIPTIONS"].keys()
             )
         )
