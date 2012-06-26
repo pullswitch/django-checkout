@@ -30,10 +30,15 @@ class Order:
             except models.Order.DoesNotExist:
                 pass
 
-        if not order:
+        if not order or (order.user and (
+            request.user.is_authenticated() and order.user != request.user)
+        ):
             order = self.new(request)
 
         self.order = order
+        if request.user.is_authenticated() and not self.order.user:
+            self.order.user = request.user
+            self.order.save()
         request.session[ORDER_ID] = self.order.pk
 
     def __iter__(self):
