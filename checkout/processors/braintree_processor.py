@@ -305,15 +305,7 @@ class Processor:
         credit_card_data = {
             "number": data.get("card_number"),
             "expiration_date": formatted_expire_date,
-            "cvv": data["ccv"],
-            "billing_address": {
-                "street_address": data["address1"],
-                "extended_address": data.get("address2"),
-                "postal_code": data["postal_code"],
-                "locality": data["city"],
-                "region": data["region"],
-                "country_code_alpha2": data["country"],
-            }
+            "cvv": data["ccv"]
         }
 
         result = braintree.CreditCard.update(payment_token, credit_card_data)
