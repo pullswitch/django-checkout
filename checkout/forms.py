@@ -7,7 +7,6 @@ from django.utils.translation import ugettext as _
 from form_utils.forms import BetterForm
 
 from .fields import CreditCardField, ExpiryDateField, VerificationValueField
-from .models import Discount
 from .settings import CHECKOUT
 from .utils import import_from_string
 
@@ -139,6 +138,8 @@ class PaymentForm(BetterForm, SimplePaymentForm):
         code = self.cleaned_data["discount_code"]
 
         if code:
+            from checkout.models import Discount
+
             if Discount.objects.filter(code__iexact=code):
                 discount = Discount.objects.get(code__iexact=code)
                 try:
