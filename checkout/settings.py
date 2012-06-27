@@ -13,7 +13,7 @@ CHECKOUT = {
     "ALLOW_PRERENEWAL": False,
     "ALLOW_PLAN_CREATION": False,
     "PLAN_OPTIONS_GENERATOR": lambda x: {
-        "id": "monthly_{0}".format(x),
+        "plan_id": "monthly_{0}".format(x),
         "interval": "monthly",
         "amount": x,
         "name": "${0}/Month Plan".format(x)
