@@ -78,7 +78,6 @@ class Order:
             order.user = request.user
         order.save()
         request.session[ORDER_ID] = order.id
-        # @@ send signal with order id and request for further actions
         return order
 
     def add(self, item_price, item_tax=0, quantity=1, **kwargs):
@@ -218,5 +217,9 @@ class Order:
             self.order.discount.save()
 
     def clear(self):
-        for item in self.order.items.all():
-            item.delete()
+        self.order.items.all().delete()
+        self.order.transactions.all().delete()
+        self.order.discount = None
+        self.order.discount_amount = 0
+        self.order.status = models.Order.INCOMPLETE
+        self.order.save()

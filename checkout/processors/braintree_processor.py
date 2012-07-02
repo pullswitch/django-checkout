@@ -42,6 +42,9 @@ class Processor:
                     "locality": data.get("billing_city"),
                     "region": data.get("billing_region"),
                     "country_code_alpha2": data.get("billing_country"),
+                },
+                "options": {
+                    "verify_card": True,
                 }
             }
         except:
@@ -139,6 +142,7 @@ class Processor:
                         "cvv": data["ccv"],
                         "options": {
                             "update_existing_token": payment_token,
+                            "verify_card": True
                         },
                         "billing_address": {
                             "street_address": data["address1"],

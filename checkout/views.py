@@ -65,6 +65,16 @@ class CheckoutView(FormView):
             self.form_class = self.form_class_signup
         incoming = self.retrieve_item()
 
+        if self.request.POST.get("discount_code"):
+            self.order_obj.apply_discount(self.request.POST.get("discount_code"))
+            if self.order_obj.total == 0:
+                self.order_obj.update_status(OrderModel.PENDING_PAYMENT)
+                # goal: remove payment-related requirements if
+                # no payment is necessary
+                for field in self.form_class.base_fields.keys():
+                    if field in PaymentForm.base_fields.keys():
+                        self.form_class.base_fields[field].required = False
+
         return self.post_handler(incoming, *args, **kwargs)
 
     def post_handler(self, incoming, *args, **kwargs):
@@ -138,7 +148,11 @@ class CheckoutView(FormView):
                 "last_name": self.request.user.last_name,
             })
 
-        success = self.save_customer_info(form)
+        # if payment is needed
+        if self.order_obj.order.total > 0:
+            success = self.save_customer_info(form)
+        else:  # no payment needed, e.g. full discount
+            success = True
         if success:
             return redirect(self.get_success_url())
         else:
@@ -150,8 +164,6 @@ class CheckoutView(FormView):
             return self.form_invalid(form)
 
     def form_invalid(self, form):
-        if self.order_obj.total == 0:
-            return redirect(self.get_success_url())
 
         signals.checkout_attempt.send(
             sender=self.form_class,
@@ -298,13 +310,6 @@ class CartCheckoutView(CheckoutView):
         if not self.order_obj.order.items.count():
             return redirect(self.empty_redirect)
         return super(CartCheckoutView, self).get(*args, **kwargs)
-
-    def post(self, *args, **kwargs):
-        self.order_obj = Order(self.request)
-        if self.request.POST.get("discount_code"):
-            self.order_obj.apply_discount(self.request.POST.get("discount_code"))
-
-        return super(CartCheckoutView, self).post(*args, **kwargs)
 
     def retrieve_item(self):
         # items aren't added via post to this view
@@ -487,9 +492,8 @@ def lookup_discount_code(request):
         discount = Discount.objects.get(
             code=request.POST.get("discount_code")
         )
-        if not discount.uses_limit or (
-            discount.uses_limit < discount.times_used
-        ):
+        if discount.is_valid():
+            # @@ what if it's a percentage discount?
             amount = discount.amount
     except:
         pass
