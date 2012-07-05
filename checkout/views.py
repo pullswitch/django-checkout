@@ -44,8 +44,8 @@ class CheckoutView(FormView):
     success_url = "checkout_confirm"
     messages = {
         "customer_info_error": {
-            "level": messages.WARNING,
-            "text": _("The billing info could not be verified")
+            "level": messages.ERROR,
+            "text": _("The payment information could not be validated")
         }
     }
 

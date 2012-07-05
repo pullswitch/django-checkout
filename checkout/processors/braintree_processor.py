@@ -63,21 +63,24 @@ class Processor:
                     return True, customer_id, None, cust
             except:
                 pass
-        # try:
-        if not result:
-            result = braintree.Customer.create({
-                "first_name": data.get("first_name") or data.get("billing_first_name"),
-                "last_name": data.get("last_name") or data.get("billing_last_name"),
-                "company": data.get("organization") or data.get("company"),
-                "email": data["email"],
-                "phone": data.get("phone_number"),
-                "credit_card": credit_card_data
-            })
-        #except:
-         #   return False, None, _("An exception occurred while creating the customer record"), None
+        try:
+            if not result:
+                result = braintree.Customer.create({
+                    "first_name": data.get("first_name") or data.get("billing_first_name"),
+                    "last_name": data.get("last_name") or data.get("billing_last_name"),
+                    "company": data.get("organization") or data.get("company"),
+                    "email": data["email"],
+                    "phone": data.get("phone_number"),
+                    "credit_card": credit_card_data
+                })
+        except:
+            return False, None, "An exception occurred while creating the customer record", None
 
         if not result.is_success:
-            error = result.errors.deep_errors[0]
+            if len(result.errors.deep_errors):  # this shouldn't be necessary
+                error = result.errors.deep_errors[0]
+            else:
+                error = "The payment information is not valid"
         else:
             customer_id = result.customer.id
             error = None
