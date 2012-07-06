@@ -121,7 +121,7 @@ class SubscriptionPaymentForm(SubscriptionForm, SimplePaymentForm):
     email = forms.CharField(max_length=100, required=True)
 
 
-class PaymentForm(BetterForm, BillingInfoPaymentForm):
+class PaymentForm(BillingInfoPaymentForm):
 
     discount_code = forms.CharField(max_length=20, required=False)
     referral_source = forms.CharField(label=_("How did you hear about us?"), max_length=100, required=False)
