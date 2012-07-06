@@ -75,12 +75,7 @@ class SimplePaymentForm(forms.Form):
             del self.fields["expiration_date"]
 
 
-class SubscriptionPaymentForm(SubscriptionForm, SimplePaymentForm):
-
-    email = forms.CharField(max_length=100, required=True)
-
-
-class PaymentForm(BetterForm, SimplePaymentForm):
+class BillingInfoPaymentForm(BetterForm, SimplePaymentForm):
 
     billing_first_name = forms.CharField(label=_("First name"))
     billing_last_name = forms.CharField(label=_("Last name"))
@@ -93,6 +88,40 @@ class PaymentForm(BetterForm, SimplePaymentForm):
     billing_postal_code = forms.CharField(max_length=15)
 
     billing_country = forms.ChoiceField(choices=COUNTRIES)
+
+    class Meta:
+        fieldsets = [
+            ("Credit Card", {
+                "fields": ["card_number", "ccv", "expiration_date"]
+            }),
+            ("Billing Address", {
+                "fields": [
+                    "billing_first_name",
+                    "billing_last_name",
+                    "billing_address1",
+                    "billing_address2",
+                    "organization",
+                    "billing_city",
+                    "billing_region",
+                    "billing_postal_code",
+                    "billing_country",
+                ]
+            })
+        ]
+
+    def __init__(self, *args, **kwargs):
+        if kwargs.get("user"):
+            self.user = kwargs.pop("user")
+        super(BillingInfoPaymentForm, self).__init__(*args, **kwargs)
+        self.fields["billing_country"].initial = "US"
+
+
+class SubscriptionPaymentForm(SubscriptionForm, SimplePaymentForm):
+
+    email = forms.CharField(max_length=100, required=True)
+
+
+class PaymentForm(BetterForm, BillingInfoPaymentForm):
 
     discount_code = forms.CharField(max_length=20, required=False)
     referral_source = forms.CharField(label=_("How did you hear about us?"), max_length=100, required=False)
@@ -110,13 +139,13 @@ class PaymentForm(BetterForm, SimplePaymentForm):
                 "fields": [
                     "billing_first_name",
                     "billing_last_name",
-                    "address1",
-                    "address2",
+                    "billing_address1",
+                    "billing_address2",
                     "organization",
-                    "city",
-                    "region",
-                    "postal_code",
-                    "country",
+                    "billing_city",
+                    "billing_region",
+                    "billing_postal_code",
+                    "billing_country",
                 ]
             })
         ]
@@ -125,7 +154,6 @@ class PaymentForm(BetterForm, SimplePaymentForm):
         if kwargs.get("user"):
             self.user = kwargs.pop("user")
         super(PaymentForm, self).__init__(*args, **kwargs)
-        self.fields["billing_country"].initial = "US"
         if CHECKOUT["REFERRAL_CHOICES"]:
             self.fields["referral_source"] = forms.MultipleChoiceField(
                 label=self.fields["referral_source"].label,
