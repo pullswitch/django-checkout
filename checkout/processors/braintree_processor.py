@@ -265,13 +265,19 @@ class Processor:
         if payment_method_token:
             result = braintree.Transaction.sale({
                 "amount": amount,
-                "payment_method_token": payment_method_token
+                "payment_method_token": payment_method_token,
+                "options": {
+                    "submit_for_settlement": True
+                }
             })
         elif customer_id:
             result = braintree.Transaction.sale({
                 "amount": amount,
                 "customer_id": customer_id,
-                "payment_method_token": payment_method_token
+                "payment_method_token": payment_method_token,
+                "options": {
+                    "submit_for_settlement": True
+                }
             })
         else:
             return False, None
