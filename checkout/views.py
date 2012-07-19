@@ -124,7 +124,7 @@ class CheckoutView(FormView):
 
     def form_valid(self, form):
         if self.request.POST.get("referral_source"):
-            referral = ", ".join(self.request.POST["referral_source"])
+            referral = self.request.POST["referral_source"]
             if referral == "Other" and self.request.POST.get("referral_source_other"):
                 referral = self.request.POST["referral_source_other"]
             self.order_obj.add_referral(referral)
