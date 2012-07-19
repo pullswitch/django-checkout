@@ -490,7 +490,7 @@ def lookup_discount_code(request):
     amount = 0
     try:
         discount = Discount.objects.get(
-            code=request.POST.get("discount_code")
+            code__iexact=request.POST.get("discount_code")
         )
         if discount.is_valid():
             # @@ what if it's a percentage discount?
