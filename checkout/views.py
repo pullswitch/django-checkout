@@ -15,12 +15,12 @@ from django.contrib import messages, auth
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 
-from .models import Discount, Order as OrderModel, OrderTransaction
-from .order import Order, ORDER_ID
-from .forms import CustomItemForm, SubscriptionForm
-from .settings import CHECKOUT
+from checkout.models import Discount, Order as OrderModel, OrderTransaction
+from checkout.order import Order, ORDER_ID
+from checkout.forms import CustomItemForm, SubscriptionForm
+from checkout.settings import CHECKOUT
 from checkout import signals
-from .utils import import_from_string
+from checkout.utils import import_from_string
 
 
 payment_module = import_module(CHECKOUT["PAYMENT_PROCESSOR"])
@@ -253,7 +253,7 @@ class SubscribeView(CheckoutView):
         sf = SubscriptionForm(self.request.POST)
         if sf.is_valid() or (
             CHECKOUT["ALLOW_PLAN_CREATION"] and
-            self.request.POST.get("amount")
+            self.request.POST.get("custom_amount")
         ):
             plan = None
             if CHECKOUT["SUBSCRIPTIONS"] and (
@@ -264,7 +264,7 @@ class SubscribeView(CheckoutView):
                 ]
             if not plan and CHECKOUT["ALLOW_PLAN_CREATION"]:
                 plan_opts = CHECKOUT["PLAN_OPTIONS_GENERATOR"](
-                    Decimal(self.request.POST.get("amount"))
+                    Decimal(self.request.POST.get("custom_amount"))
                 )
                 plan = self.processor.create_plan(**plan_opts)
             if plan:

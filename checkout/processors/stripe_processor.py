@@ -23,14 +23,18 @@ class Processor:
         # convert our amount to CENTS as integer
         amount = int(amount * 100)
         try:
-            return stripe.Plan.retrieve(id)
+            plan = stripe.Plan.retrieve(id)
         except:
-            return stripe.Plan.create(
+            plan = stripe.Plan.create(
                 amount=amount,
                 interval=interval,
                 name=name,
                 currency=currency,
-                id=id)
+                id=id
+            )
+        # amount will be in cents so normalize to dollar
+        plan["amount"] = plan["amount"] / 100
+        return plan
 
     def create_token(self, number, exp_month, exp_year, cvc, currency="usd"):
         return stripe.Token.create(
