@@ -3,7 +3,7 @@ from django.conf import settings
 CHECKOUT = {
     "SUBSCRIPTIONS": None or {
         "sample": {
-                "plan_id": "sample-plan",
+                "id": "sample-plan",
                 "name": "Monthly Subscription",
                 "amount": 29,
                 "prorate": False,
@@ -13,7 +13,7 @@ CHECKOUT = {
     "ALLOW_PRERENEWAL": False,
     "ALLOW_PLAN_CREATION": False,
     "PLAN_OPTIONS_GENERATOR": lambda x: {
-        "plan_id": "monthly_{0}".format(x),
+        "id": "monthly_{0}".format(x),
         "interval": "monthly",
         "amount": x,
         "name": "${0}/Month Plan".format(x)

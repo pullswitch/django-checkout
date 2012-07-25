@@ -272,7 +272,7 @@ class SubscribeView(CheckoutView):
                 self.order_obj.add(
                     plan["amount"],
                     description=plan["name"],
-                    subscription_plan=plan["plan_id"]
+                    subscription_plan=plan["id"]
                 )
                 self.order_obj.update_totals()
                 return True
