@@ -10,10 +10,6 @@ from .fields import CreditCardField, ExpiryDateField, VerificationValueField
 from .settings import CHECKOUT
 from .utils import import_from_string
 
-if "django_countries" in settings.INSTALLED_APPS:
-    from django_countries.countries import COUNTRIES
-else:
-    COUNTRIES = ()
 
 BaseSignupForm = import_from_string(CHECKOUT["BASE_SIGNUP_FORM"])
 
@@ -83,11 +79,15 @@ class BillingInfoPaymentForm(BetterForm, SimplePaymentForm):
     billing_address1 = forms.CharField(label=_("Address 1"), max_length=50)
     billing_address2 = forms.CharField(label=_("Address 2"), max_length=50, required=False)
     organization = forms.CharField(label=_("Business/Organization"), max_length=50, required=False)
-    billing_city = forms.CharField(max_length=40)
+    billing_city = forms.CharField(label=_("City"), max_length=40)
     billing_region = forms.CharField(label=_("State/Region"), max_length=75)
-    billing_postal_code = forms.CharField(max_length=15)
+    billing_postal_code = forms.CharField(label=_("Zip/Postal Code"), max_length=15)
 
-    billing_country = forms.ChoiceField(choices=COUNTRIES)
+    if "django_countries" in settings.INSTALLED_APPS:
+        from django_countries.countries import COUNTRIES
+        billing_country = forms.ChoiceField(choices=COUNTRIES)
+    else:
+        billing_country = forms.CharField(label=_("Country"), max_length=50)
 
     class Meta:
         fieldsets = [

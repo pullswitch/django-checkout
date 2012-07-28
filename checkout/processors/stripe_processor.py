@@ -36,15 +36,19 @@ class Processor:
         plan["amount"] = plan["amount"] / 100
         return plan
 
-    def create_token(self, number, exp_month, exp_year, cvc, currency="usd"):
+    def create_token(self, number, exp_month, exp_year, cvc, currency=None, **kwargs):
         return stripe.Token.create(
             card={
             "number": number,
             "exp_month": exp_month,
             "exp_year": exp_year,
-            "cvc": cvc
-            },
-            currency=currency
+            "cvc": cvc,
+            "address_line1": kwargs.get("address_line1"),
+            "address_line2": kwargs.get("address_line2"),
+            "address_zip": kwargs.get("address_zip"),
+            "address_state": kwargs.get("address_state"),
+            "address_country": kwargs.get("address_country")
+            }
         )
 
     def create_customer(self, data, customer_id=None):
@@ -61,6 +65,11 @@ class Processor:
                 "exp_month": expire_month,
                 "exp_year": expire_year,
                 "cvc": data["ccv"],
+                "address_line1": data.get("billing_address1"),
+                "address_line2": data.get("billing_address2"),
+                "address_zip": data.get("billing_postal_code"),
+                "address_state": data.get("billing_region"),
+                "address_country": data.get("billing_country")
             })
 
         if customer_id:
