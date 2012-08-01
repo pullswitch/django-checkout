@@ -24,7 +24,7 @@ class Order:
         order = None
         if order_id:
             try:
-                order = models.Order.objects.get(id=order_id, status__in=(
+                order = models.Order.objects.get(pk=order_id, status__in=(
                     models.Order.INCOMPLETE, models.Order.PENDING_PAYMENT
                 ))
             except models.Order.DoesNotExist:
@@ -77,7 +77,7 @@ class Order:
         if request.user.is_authenticated():
             order.user = request.user
         order.save()
-        request.session[ORDER_ID] = order.id
+        request.session[ORDER_ID] = order.pk
         return order
 
     def add(self, item_price, item_tax=0, quantity=1, **kwargs):

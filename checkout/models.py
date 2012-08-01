@@ -1,5 +1,6 @@
 import os
 import base64
+import binascii
 from datetime import datetime
 from decimal import Decimal
 
@@ -43,6 +44,8 @@ class Order(models.Model):
     REFUNDED = "refunded"
     CANCELED = "canceled"
 
+    key = models.CharField(max_length=20, primary_key=True)
+
     user = models.ForeignKey(User, null=True, related_name="orders")
     customer_id = models.CharField(max_length=50, blank=True, null=True)
     notes = models.TextField(_("Notes"), blank=True, null=True)
@@ -77,10 +80,16 @@ class Order(models.Model):
         return self.items.count()
 
     def save(self, *args, **kwargs):
-        if not self.pk:
+        if not self.pk and not self.creation_date:
             self.creation_date = datetime.now()
 
+        if not self.key:
+            self.key = self.generate_key()
+
         super(Order, self).save(*args, **kwargs)
+
+    def generate_key(self, length=8):
+        return binascii.b2a_hex(os.urandom(length))
 
     def successful_transaction(self):
         try:

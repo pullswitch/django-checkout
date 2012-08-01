@@ -469,11 +469,13 @@ def order_list(request, **kwargs):
     }, context_instance=RequestContext(request))
 
 
-@login_required
 def order_details(request, pk, **kwargs):
 
     template_name = kwargs.pop("template_name", "checkout/order_detail.html")
-    order = get_object_or_404(request.user.orders, pk=pk)
+    if request.user.is_authenticated():
+        order = get_object_or_404(request.user.orders, pk=pk)
+    else:
+        order = get_object_or_404(Order, pk=pk)
     if order.transactions.count():
         transaction = order.transactions.latest()
     else:
