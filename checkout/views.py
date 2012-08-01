@@ -475,7 +475,7 @@ def order_details(request, pk, **kwargs):
     if request.user.is_authenticated():
         order = get_object_or_404(request.user.orders, pk=pk)
     else:
-        order = get_object_or_404(Order, pk=pk)
+        order = get_object_or_404(Order.objects.all(), pk=pk)
     if order.transactions.count():
         transaction = order.transactions.latest()
     else:
