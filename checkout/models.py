@@ -10,8 +10,7 @@ from django.utils.translation import ugettext_lazy as _
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.auth.models import User
 
-from .fields import CurrencyField
-from .settings import CHECKOUT
+from checkout.settings import CHECKOUT
 
 
 class OrderManager(models.Manager):
@@ -44,22 +43,22 @@ class Order(models.Model):
     REFUNDED = "refunded"
     CANCELED = "canceled"
 
-    key = models.CharField(max_length=20, primary_key=True)
+    key = models.CharField(max_length=20, primary_key=True, editable=False)
 
     user = models.ForeignKey(User, null=True, related_name="orders")
     customer_id = models.CharField(max_length=50, blank=True, null=True)
     notes = models.TextField(_("Notes"), blank=True, null=True)
 
-    subtotal = CurrencyField(_("Subtotal"),
-        max_digits=18, decimal_places=10, blank=True, null=True, display_decimal=4)
-    tax = CurrencyField(_("Tax"),
-        max_digits=18, decimal_places=10, blank=True, null=True)
-    total = CurrencyField(_("Total"),
-        max_digits=18, decimal_places=10, blank=True, null=True, display_decimal=4)
+    subtotal = models.DecimalField(_("Subtotal"),
+        max_digits=18, decimal_places=2, blank=True, null=True)
+    tax = models.DecimalField(_("Tax"),
+        max_digits=18, decimal_places=2, blank=True, null=True)
+    total = models.DecimalField(_("Total"),
+        max_digits=18, decimal_places=2, blank=True, null=True)
 
     discount = models.ForeignKey("Discount", blank=True, null=True)
-    discount_amount = CurrencyField(_("Discount amount"),
-        max_digits=18, decimal_places=10, blank=True, null=True)
+    discount_amount = models.DecimalField(_("Discount amount"),
+        max_digits=18, decimal_places=2, blank=True, null=True)
 
     creation_date = models.DateTimeField(verbose_name=_('creation date'))
 
@@ -70,10 +69,7 @@ class Order(models.Model):
     objects = OrderManager()
 
     def __unicode__(self):
-        if self.user:
-            return "Order #{0}: {1}".format(self.id, self.user.get_full_name())
-
-        return "Order#{0}".format(self.id)
+        return "Order #{0}".format(self.pk)
 
     @property
     def item_count(self):
@@ -126,9 +122,9 @@ class LineItem(models.Model):
     attributes = models.CharField(max_length=100, blank=True, null=True)
     subscription_plan = models.CharField(max_length=100, blank=True, null=True)
     quantity = models.PositiveIntegerField(default=1, null=True)
-    item_price = CurrencyField(max_digits=18, decimal_places=10)
-    item_tax = CurrencyField(default=Decimal('0.00'), max_digits=18, decimal_places=10)
-    total = CurrencyField(max_digits=18, decimal_places=10)
+    item_price = models.DecimalField(max_digits=18, decimal_places=2)
+    item_tax = models.DecimalField(default=Decimal('0.00'), max_digits=18, decimal_places=2)
+    total = models.DecimalField(max_digits=18, decimal_places=2)
 
     objects = LineItemManager()
 
@@ -185,7 +181,7 @@ class OrderTransaction(models.Model):
 
     payment_method = models.IntegerField(choices=METHOD_CHOICES, default=1)
     description = models.CharField(max_length=100, blank=True)
-    amount = CurrencyField(max_digits=18, decimal_places=10, blank=True, null=True)
+    amount = models.DecimalField(max_digits=18, decimal_places=2, blank=True, null=True)
 
     last_four = models.CharField(max_length=4, blank=True, null=True)
     reference_number = models.CharField(max_length=32, blank=True, null=True)

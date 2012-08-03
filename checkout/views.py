@@ -154,6 +154,11 @@ class CheckoutView(FormView):
         else:  # no payment needed, e.g. full discount
             success = True
         if success:
+            signals.form_complete.send(
+                sender=None,
+                order=self.order_obj.order,
+                form=form
+            )
             return redirect(self.get_success_url())
         else:
             messages.add_message(

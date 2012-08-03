@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 setup(
     name = "django-checkout",
-    version = "0.2.0",
+    version = "0.3.0",
     author = "Dave Lowe",
     author_email = "dave@hellopullswitch.com",
     description = "a Django app for handling subscriptions, orders and transactions",

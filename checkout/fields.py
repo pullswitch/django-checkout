@@ -3,9 +3,7 @@ Essentially an amalgamation of ...
 
 django-creditcard-fields by Bryan Chow
 https://github.com/bryanchow/django-creditcard-fields/
-and
-CurrencyField from the satchmo project
-""" 
+"""
 
 import re
 from datetime import date
@@ -24,19 +22,8 @@ VERIFICATION_VALUE_RE = r'^([0-9]{3,4})$'
 
 class CurrencyField(DecimalField):
 
-    def __init__(self, *args, **kwargs):
-        self.places = kwargs.pop('display_decimal', 2)
-        super(CurrencyField, self).__init__(*args, **kwargs)
+    pass
 
-    def formfield(self, **kwargs):
-        defaults = {
-            'max_digits': self.max_digits,
-            'decimal_places': self.decimal_places,
-            'form_class': forms.DecimalField,
-        }
-        defaults.update(kwargs)
-        return super(CurrencyField, self).formfield(**defaults)
-        
 
 class CreditCardField(forms.CharField):
     """
@@ -53,7 +40,7 @@ class CreditCardField(forms.CharField):
         if self.required and not value:
             raise forms.util.ValidationError(self.error_messages['required'])
 
-        if value:        
+        if value:
             value = value.replace(' ', '').replace('-', '')
             if not re.match(CREDIT_CARD_RE, value):
                 raise forms.util.ValidationError(self.error_messages['invalid'])
@@ -120,7 +107,7 @@ class ExpiryDateField(forms.MultiValueField):
             except (ValueError, TypeError):
                 raise forms.ValidationError(self.error_messages['invalid_year'])
             try:
-                day = monthrange(year, month)[1] # last day of the month
+                day = monthrange(year, month)[1]  # last day of the month
             except IllegalMonthError:
                 raise forms.ValidationError(self.error_messages['invalid_month'])
             except ValueError:
