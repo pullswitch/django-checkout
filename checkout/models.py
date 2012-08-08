@@ -47,6 +47,7 @@ class Order(models.Model):
 
     user = models.ForeignKey(User, null=True, related_name="orders")
     customer_id = models.CharField(max_length=50, blank=True, null=True)
+    email = models.EmailField(blank=True, null=True)
     notes = models.TextField(_("Notes"), blank=True, null=True)
 
     subtotal = models.DecimalField(_("Subtotal"),
@@ -70,6 +71,10 @@ class Order(models.Model):
 
     def __unicode__(self):
         return "Order #{0}".format(self.pk)
+
+    @models.permalink
+    def get_absolute_url(self):
+        return ("checkout_order_details", (self.key, ))
 
     @property
     def item_count(self):
