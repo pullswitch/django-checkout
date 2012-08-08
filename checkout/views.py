@@ -89,6 +89,9 @@ class CheckoutView(FormView):
     def retrieve_item(self):
         cf = CustomItemForm(self.request.POST)
         if cf.is_valid():
+            # clear any preexisting items
+            self.order_obj.clear()
+            # add item
             self.order_obj.add(
                 cf.cleaned_data.get("item_amount"),
                 description=cf.cleaned_data.get("item_description")
@@ -128,6 +131,9 @@ class CheckoutView(FormView):
             if referral == "Other" and self.request.POST.get("referral_source_other"):
                 referral = self.request.POST["referral_source_other"]
             self.order_obj.add_referral(referral)
+
+        self.order_obj.order.email = form.cleaned_data["email"]
+        self.order_obj.order.save()
 
         if (not self.request.user.is_authenticated() and
             not CHECKOUT["ANONYMOUS_CHECKOUT"]):
