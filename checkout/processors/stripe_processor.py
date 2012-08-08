@@ -86,9 +86,7 @@ class Processor:
                 email=data["email"],
                 card=token
             )
-            print result
         except:
-            print "error"
             return False, None, _("An error occurred while creating the customer record"), None
 
         return True, result["id"], None, result
