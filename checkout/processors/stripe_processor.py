@@ -46,6 +46,7 @@ class Processor:
             "address_line1": kwargs.get("address_line1"),
             "address_line2": kwargs.get("address_line2"),
             "address_zip": kwargs.get("address_zip"),
+            # "address_city": kwargs.get("address_city"),  # not currently supported
             "address_state": kwargs.get("address_state"),
             "address_country": kwargs.get("address_country")
             }
@@ -68,6 +69,7 @@ class Processor:
                 "address_line1": data.get("billing_address1"),
                 "address_line2": data.get("billing_address2"),
                 "address_zip": data.get("billing_postal_code"),
+                "address_city": data.get("billing_city"),
                 "address_state": data.get("billing_region"),
                 "address_country": data.get("billing_country")
             })

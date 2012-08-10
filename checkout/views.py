@@ -148,11 +148,7 @@ class CheckoutView(FormView):
             self.after_signup(user, form)
 
         if self.request.user.is_authenticated():
-            form.cleaned_data.update({
-                "email": self.request.user.email,
-                "first_name": self.request.user.first_name,
-                "last_name": self.request.user.last_name,
-            })
+            form.cleaned_data = self.update_from_user(form.cleaned_data, self.request.user)
 
         # if payment is needed
         if self.order_obj.order.total > 0:
@@ -173,6 +169,13 @@ class CheckoutView(FormView):
                 self.messages["customer_info_error"]["text"]
             )
             return self.form_invalid(form)
+
+    def update_from_user(self, form_data, user):
+        return form_data.update({
+            "email": user.email,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+        })
 
     def form_invalid(self, form):
 
