@@ -148,11 +148,11 @@ class CheckoutView(FormView):
             self.after_signup(user, form)
 
         if self.request.user.is_authenticated():
-            form.cleaned_data = self.update_from_user(form.cleaned_data, self.request.user)
+            form_data = self.update_from_user(form.cleaned_data, self.request.user)
 
         # if payment is needed
         if self.order_obj.order.total > 0:
-            success = self.save_customer_info(form)
+            success = self.save_customer_info(form_data)
         else:  # no payment needed, e.g. full discount
             success = True
         if success:
@@ -205,8 +205,7 @@ class CheckoutView(FormView):
     def after_signup(self, user, form):
         signals.user_signed_up.send(sender=SignupForm, user=user, form=form)
 
-    def save_customer_info(self, form):
-        payment_data = form.cleaned_data
+    def save_customer_info(self, payment_data):
         if self.request.user.is_authenticated():
             payment_data.update({
                 "email": self.request.user.email,
