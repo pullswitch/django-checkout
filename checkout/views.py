@@ -147,8 +147,10 @@ class CheckoutView(FormView):
             self.order_obj.order.save()
             self.after_signup(user, form)
 
+        form_data = form.cleaned_data
+
         if self.request.user.is_authenticated():
-            form_data = self.update_from_user(form.cleaned_data, self.request.user)
+            form_data = self.update_from_user(form_data, self.request.user)
 
         # if payment is needed
         if self.order_obj.order.total > 0:
@@ -171,11 +173,12 @@ class CheckoutView(FormView):
             return self.form_invalid(form)
 
     def update_from_user(self, form_data, user):
-        return form_data.update({
+        form_data.update({
             "email": user.email,
             "first_name": user.first_name,
             "last_name": user.last_name,
         })
+        return form_data
 
     def form_invalid(self, form):
 
@@ -238,18 +241,18 @@ class CheckoutView(FormView):
                 payment_method=OrderTransaction.CREDIT,
                 last_four=self.processor.get_card_last4(card_details),
                 reference_number=reference_id,
-                billing_first_name=form.cleaned_data.get("billing_first_name") or\
-                    form.cleaned_data.get("first_name") or\
+                billing_first_name=payment_data.get("billing_first_name") or\
+                    payment_data.get("first_name") or\
                     self.request.user.first_name,
-                billing_last_name=form.cleaned_data.get("billing_last_name") or\
-                    form.cleaned_data.get("last_name") or \
+                billing_last_name=payment_data.get("billing_last_name") or\
+                    payment_data.get("last_name") or \
                     self.request.user.last_name,
-                billing_address1=form.cleaned_data.get("billing_address1", ""),
-                billing_address2=form.cleaned_data.get("billing_address2", ""),
-                billing_city=form.cleaned_data.get("billing_city", ""),
-                billing_region=form.cleaned_data.get("billing_region", ""),
-                billing_postal_code=form.cleaned_data.get("billing_postal_code", ""),
-                billing_country=form.cleaned_data.get("billing_country", ""),
+                billing_address1=payment_data.get("billing_address1", ""),
+                billing_address2=payment_data.get("billing_address2", ""),
+                billing_city=payment_data.get("billing_city", ""),
+                billing_region=payment_data.get("billing_region", ""),
+                billing_postal_code=payment_data.get("billing_postal_code", ""),
+                billing_country=payment_data.get("billing_country", ""),
             )
 
             self.order_obj.update_totals()

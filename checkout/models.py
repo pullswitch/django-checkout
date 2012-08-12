@@ -54,6 +54,8 @@ class Order(models.Model):
         max_digits=18, decimal_places=2, blank=True, null=True)
     tax = models.DecimalField(_("Tax"),
         max_digits=18, decimal_places=2, blank=True, null=True)
+    shipping = models.DecimalField(_("Shipping"),
+        max_digits=8, decimal_places=2, blank=True, null=True)
     total = models.DecimalField(_("Total"),
         max_digits=18, decimal_places=2, blank=True, null=True)
 

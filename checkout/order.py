@@ -164,6 +164,8 @@ class Order:
             total = float(subtotal) - float(self.order.discount_amount)
             if total < 0:
                 total = 0
+        if self.order.shipping:
+            total += self.order.shipping
         self.order.total = total
         self.order.save()
 
