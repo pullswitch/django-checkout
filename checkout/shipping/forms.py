@@ -14,7 +14,14 @@ class ShippingPaymentForm(BillingInfoPaymentForm, BetterForm):
         initial=True,
         required=False
     )
-
+    first_name = forms.CharField(
+        label=_("First Name"),
+        max_length=40
+    )
+    last_name = forms.CharField(
+        label=_("Last Name"),
+        max_length=40
+    )
     address1 = forms.CharField(
         label=_("Street Address"),
         max_length=50,
@@ -31,6 +38,11 @@ class ShippingPaymentForm(BillingInfoPaymentForm, BetterForm):
     postal_code = forms.CharField(
         label=_("Zip/Postal Code"),
         max_length=15,
+        required=False
+    )
+    phone = forms.CharField(
+        label=_("Phone"),
+        max_length=20,
         required=False
     )
 
@@ -68,16 +80,35 @@ class ShippingPaymentForm(BillingInfoPaymentForm, BetterForm):
             }),
             ("Shipping Address", {
                 "fields": [
+                    "first_name",
+                    "last_name",
                     "address1",
                     "address2",
                     "city",
                     "region",
                     "postal_code",
-                    "country"
+                    "country",
+                    "phone"
                 ],
                 "classes": ("shipping",)
             })
         ]
+
+    def clean_first_name(self):
+        f = self.cleaned_data["first_name"]
+        if self.cleaned_data.get("same_as_billing"):
+            return self.cleaned_data["billing_first_name"]
+        elif not f:
+            raise forms.ValidationError("Ship-to name is required")
+        return f
+
+    def clean_last_name(self):
+        f = self.cleaned_data["last_name"]
+        if self.cleaned_data.get("same_as_billing"):
+            return self.cleaned_data["billing_last_name"]
+        elif not f:
+            raise forms.ValidationError("Ship-to name is required")
+        return f
 
     def clean_address1(self):
         f = self.cleaned_data["address1"]
