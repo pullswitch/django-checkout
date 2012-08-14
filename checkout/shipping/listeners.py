@@ -6,7 +6,7 @@ def save_shipping_address(sender, order, form, **kwargs):
     address, created = Address.objects.get_or_create(order=order)
 
     address.first_name = form.cleaned_data["first_name"]
-    address.first_name = form.cleaned_data["last_name"]
+    address.last_name = form.cleaned_data["last_name"]
     address.address1 = form.cleaned_data["address1"]
     address.address2 = form.cleaned_data.get("address2")
     address.city = form.cleaned_data["city"]
