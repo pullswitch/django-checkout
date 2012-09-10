@@ -510,7 +510,8 @@ def lookup_discount_code(request):
         discount = Discount.objects.get(
             code__iexact=request.POST.get("discount_code")
         )
-        if discount.is_valid():
+        get_user = lambda: request.user if request.user.is_authenticated() else None
+        if discount.is_valid(get_user()):
             # @@ what if it's a percentage discount?
             amount = discount.amount
     except:
