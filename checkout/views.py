@@ -428,7 +428,7 @@ class ConfirmView(TemplateView):
 
             self.after_order()
 
-            return redirect(self.get_success_url(self.order_obj.pk))
+            return redirect(self.get_success_url(self.order_obj))
 
         return self.render_to_response(self.get_context_data())
 
@@ -455,8 +455,8 @@ class ConfirmView(TemplateView):
         )
         return redirect("checkout")
 
-    def get_success_url(self, pk):
-        return reverse("checkout_order_details", kwargs={"pk": pk})
+    def get_success_url(self, order):
+        return reverse("checkout_order_details", kwargs={"key": order.key})
 
 
 class CartConfirmView(ConfirmView):
@@ -485,13 +485,13 @@ def order_list(request, **kwargs):
     }, context_instance=RequestContext(request))
 
 
-def order_details(request, pk, **kwargs):
+def order_details(request, key, **kwargs):
 
     template_name = kwargs.pop("template_name", "checkout/order_detail.html")
     if request.user.is_authenticated():
-        order = get_object_or_404(request.user.orders, pk=pk)
+        order = get_object_or_404(request.user.orders, key=key)
     else:
-        order = get_object_or_404(OrderModel.objects.all(), pk=pk)
+        order = get_object_or_404(OrderModel.objects.all(), key=key)
     if order.transactions.count():
         transaction = order.transactions.latest()
     else:

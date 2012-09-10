@@ -43,7 +43,7 @@ class Order(models.Model):
     REFUNDED = "refunded"
     CANCELED = "canceled"
 
-    key = models.CharField(max_length=20, primary_key=True, editable=False)
+    key = models.CharField(max_length=20, editable=False)
 
     user = models.ForeignKey(User, null=True, related_name="orders")
     customer_id = models.CharField(max_length=50, blank=True, null=True)
@@ -225,7 +225,8 @@ class Discount(models.Model):
     active = models.BooleanField(default=True)
     amount = models.DecimalField(decimal_places=2, max_digits=8, blank=True, null=True)
     percentage = models.IntegerField(blank=True, null=True)
-    uses_limit = models.IntegerField(blank=True, null=True)
+    uses_limit = models.IntegerField(_("Global usage limit"), blank=True, null=True)
+    individual_use_limit = models.IntegerField(_("Individual usage limit"), default=1)
     times_used = models.IntegerField(default=0)
     user = models.ForeignKey(User, blank=True, null=True)
     active_date = models.DateTimeField(blank=True, null=True)
@@ -243,8 +244,12 @@ class Discount(models.Model):
             return False
         if not self.active:
             return False
-        if user and self.user and user != self.user:
-            return False
+        if user:
+            if self.user and user != self.user:
+                return False
+            elif user.orders.filter(discount=self).count() >= self.individual_use_limit:
+                # if user has met the usage limit of this discount
+                return False
         return True
 
     def associated_orders(self):
