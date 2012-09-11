@@ -179,7 +179,7 @@ class Order:
     def apply_discount(self, discount=None, amount=None):
         if discount:
             try:
-                discount_obj = models.Discount.objects.get(code=discount)
+                discount_obj = models.Discount.objects.get(code__iexact=discount)
             except:
                 return
             if discount_obj.is_valid(self.order.user):
