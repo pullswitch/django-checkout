@@ -163,7 +163,7 @@ class CheckoutView(FormView):
                 order=self.order_obj.order,
                 form=form
             )
-            return redirect(self.get_success_url(self.order_obj.order))
+            return redirect(self.get_success_url())
         else:
             messages.add_message(
                 self.request,
