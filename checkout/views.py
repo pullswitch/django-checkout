@@ -313,13 +313,15 @@ class CartCheckoutView(CheckoutView):
                     self.order_obj.add(
                         item.unit_price,
                         product=item.product,
-                        attributes=item.attributes
+                        attributes=item.attributes,
+                        quantity=item.quantity
                     )
                 except:
                     self.order_obj.add(
                         item["amount"],
                         attributes=item.get("attributes", ""),
-                        description=item["description"]
+                        description=item["description"],
+                        quantity=item.get("quantity", 1)
                     )
 
             self.order_obj.update_totals()
