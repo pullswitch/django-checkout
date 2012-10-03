@@ -152,20 +152,20 @@ class Order:
 
     def update_totals(self):
         subtotal = 0
-        tax = 0
         total = 0
         for item in self:
             subtotal += item.quantity * item.item_price
-            tax += item.quantity * item.item_tax
             total += item.total
         self.order.subtotal = subtotal
-        self.order.tax = tax
         if self.order.discount_amount:
             total = float(subtotal) - float(self.order.discount_amount)
             if total < 0:
                 total = 0
+        if self.order.tax:
+            total += self.order.tax
         if self.order.shipping:
             total += self.order.shipping
+        self.order.subtotal = subtotal
         self.order.total = total
         self.order.save()
 
