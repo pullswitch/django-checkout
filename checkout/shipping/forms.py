@@ -16,11 +16,13 @@ class ShippingPaymentForm(BillingInfoPaymentForm, BetterForm):
     )
     first_name = forms.CharField(
         label=_("First Name"),
-        max_length=40
+        max_length=40,
+        required=False
     )
     last_name = forms.CharField(
         label=_("Last Name"),
-        max_length=40
+        max_length=40,
+        required=False
     )
     address1 = forms.CharField(
         label=_("Street Address"),
