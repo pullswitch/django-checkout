@@ -16,7 +16,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 
 from checkout.models import Discount, Order as OrderModel, OrderTransaction
-from checkout.order import Order, ORDER_ID
+from checkout.order import Order
 from checkout.forms import CustomItemForm, SubscriptionForm
 from checkout.settings import CHECKOUT
 from checkout import signals
@@ -26,6 +26,7 @@ from checkout.utils import import_from_string
 payment_module = import_module(CHECKOUT["PAYMENT_PROCESSOR"])
 PaymentForm = import_from_string(CHECKOUT["PAYMENT_FORM"])
 SignupForm = import_from_string(CHECKOUT["SIGNUP_FORM"])
+ORDER_ID = CHECKOUT["COOKIE_KEY_ORDER"]
 
 
 class CheckoutView(FormView):
@@ -508,14 +509,12 @@ def order_details(request, key, **kwargs):
 @require_POST
 def lookup_discount_code(request):
     amount = 0
-    try:
-        discount = Discount.objects.get(
-            code__iexact=request.POST.get("discount_code")
-        )
-        get_user = lambda: request.user if request.user.is_authenticated() else None
-        if discount.is_valid(get_user()):
-            # @@ what if it's a percentage discount?
-            amount = discount.amount
-    except:
-        pass
-    return HttpResponse(json.dumps({"discount": str(amount)}), mimetype="application/json")
+    order_obj = Order(request)
+    total = order_obj.total
+    order_obj.apply_discount(request.POST.get("discount_code"))
+    new_total = order_obj.total
+    amount = total - new_total
+    ret = {"amount": str(amount), "total": str(new_total)}
+    if order_obj.order.discount:
+        ret.update({"description": order_obj.order.discount.description})
+    return HttpResponse(json.dumps(ret), mimetype="application/json")

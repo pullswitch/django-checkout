@@ -33,7 +33,8 @@ CHECKOUT = {
         (2, "Check"),
         (3, "Discount/Gift Certificate")
     ),
-    "PAYMENT_PROCESSOR": "checkout.processors.braintree_processor"
+    "PAYMENT_PROCESSOR": "checkout.processors.stripe_processor",
+    "COOKIE_KEY_ORDER": "ORDER-ID",
 }
 
 if hasattr(settings, "CHECKOUT"):

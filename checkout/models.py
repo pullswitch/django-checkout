@@ -225,6 +225,8 @@ class Discount(models.Model):
     active = models.BooleanField(default=True)
     amount = models.DecimalField(decimal_places=2, max_digits=8, blank=True, null=True)
     percentage = models.IntegerField(blank=True, null=True)
+    free_shipping = models.BooleanField(default=False)
+    no_tax = models.BooleanField(default=False)
     uses_limit = models.IntegerField(_("Global usage limit"), blank=True, null=True)
     individual_use_limit = models.IntegerField(_("Individual usage limit"), default=1)
     times_used = models.IntegerField(default=0)

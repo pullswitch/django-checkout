@@ -3,7 +3,9 @@ import models
 
 from django.contrib.contenttypes.models import ContentType
 
-ORDER_ID = 'ORDER-ID'
+from checkout.settings import CHECKOUT
+
+ORDER_ID = CHECKOUT["COOKIE_KEY_ORDER"]
 
 
 class LineItemAlreadyExists(Exception):
@@ -153,17 +155,23 @@ class Order:
     def update_totals(self):
         subtotal = 0
         total = 0
+        shipping_waiver = False
+        tax_waiver = False
+        if self.order.discount and self.order.discount.free_shipping:
+            shipping_waiver = True
+        if self.order.discount and self.order.discount.no_tax:
+            tax_waiver = True
         for item in self:
             subtotal += item.quantity * item.item_price
             total += item.total
         self.order.subtotal = subtotal
         if self.order.discount_amount:
-            total = float(subtotal) - float(self.order.discount_amount)
+            total = subtotal - self.order.discount_amount
             if total < 0:
                 total = 0
-        if self.order.tax:
+        if self.order.tax and not tax_waiver:
             total += self.order.tax
-        if self.order.shipping:
+        if self.order.shipping and not shipping_waiver:
             total += self.order.shipping
         self.order.subtotal = subtotal
         self.order.total = total
@@ -186,8 +194,12 @@ class Order:
                 self.order.discount = discount_obj
                 if discount_obj.amount and discount_obj.amount > 0:
                     self.order.discount_amount = discount_obj.amount
-                else:
+                elif discount_obj.percentage:
                     self.order.discount_amount = float(self.total) * (float(discount_obj.percentage) / 100.00)
+                elif discount_obj.no_tax:
+                    self.order.discount_amount = self.order.tax
+                elif discount_obj.free_shipping:
+                    self.order.discount_amount = self.order.shipping
                 transaction, created = models.OrderTransaction.objects.get_or_create(
                     order=self.order,
                     payment_method=models.OrderTransaction.DISCOUNT
