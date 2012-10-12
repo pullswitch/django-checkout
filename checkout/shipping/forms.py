@@ -138,6 +138,8 @@ class ShippingPaymentForm(BillingInfoPaymentForm, BetterForm):
         f = self.cleaned_data["region"]
         if self.cleaned_data.get("same_as_billing"):
             return self.cleaned_data.get("billing_region")
+        elif not f:
+            raise forms.ValidationError("State/region is required")
         return f
 
     def clean_postal_code(self):
@@ -152,4 +154,6 @@ class ShippingPaymentForm(BillingInfoPaymentForm, BetterForm):
         f = self.cleaned_data["country"]
         if self.cleaned_data.get("same_as_billing"):
             return self.cleaned_data.get("billing_country")
+        elif not f:
+            raise forms.ValidationError("Country is required")
         return f
