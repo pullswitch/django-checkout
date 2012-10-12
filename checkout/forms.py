@@ -54,7 +54,7 @@ class SimplePaymentForm(forms.Form):
     It will adapt to use a Stripe-provided token if present
     """
     amount = forms.DecimalField(widget=forms.HiddenInput)
-    email = forms.CharField(max_length=100, required=True)
+    email = forms.EmailField(max_length=100, required=True)
     card_number = CreditCardField(required=True)
     ccv = VerificationValueField(label="CCV", required=True)
     expiration_date = ExpiryDateField(required=True)
