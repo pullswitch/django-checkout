@@ -13,6 +13,7 @@ setup(
     packages = find_packages(),
     install_requires = [
         "django-form-utils==0.2.0",
+        "pytz"
     ],
     classifiers = [
         "Development Status :: 4 - Beta",

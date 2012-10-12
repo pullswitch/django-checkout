@@ -1,6 +1,7 @@
 import os
 import base64
 import binascii
+import pytz
 from datetime import datetime
 from decimal import Decimal
 
@@ -238,9 +239,9 @@ class Discount(models.Model):
         return self.code
 
     def is_valid(self, user=None):
-        if self.active_date and datetime.now() < self.active_date:
+        if self.active_date and datetime.now(pytz.utc) < self.active_date:
             return False
-        if self.expire_date and datetime.now() > self.expire_date:
+        if self.expire_date and datetime.now(pytz.utc) > self.expire_date:
             return False
         if self.uses_limit > 0 and self.times_used >= self.uses_limit:
             return False
