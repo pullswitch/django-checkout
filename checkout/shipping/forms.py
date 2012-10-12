@@ -99,7 +99,7 @@ class ShippingPaymentForm(BillingInfoPaymentForm, BetterForm):
     def clean_first_name(self):
         f = self.cleaned_data["first_name"]
         if self.cleaned_data.get("same_as_billing"):
-            return self.cleaned_data["billing_first_name"]
+            return self.cleaned_data.get("billing_first_name")
         elif not f:
             raise forms.ValidationError("Ship-to name is required")
         return f
@@ -107,7 +107,7 @@ class ShippingPaymentForm(BillingInfoPaymentForm, BetterForm):
     def clean_last_name(self):
         f = self.cleaned_data["last_name"]
         if self.cleaned_data.get("same_as_billing"):
-            return self.cleaned_data["billing_last_name"]
+            return self.cleaned_data.get("billing_last_name")
         elif not f:
             raise forms.ValidationError("Ship-to name is required")
         return f
@@ -115,7 +115,7 @@ class ShippingPaymentForm(BillingInfoPaymentForm, BetterForm):
     def clean_address1(self):
         f = self.cleaned_data["address1"]
         if self.cleaned_data.get("same_as_billing"):
-            return self.cleaned_data["billing_address1"]
+            return self.cleaned_data.get("billing_address1")
         elif not f:
             raise forms.ValidationError("Street address is required")
         return f
@@ -123,13 +123,13 @@ class ShippingPaymentForm(BillingInfoPaymentForm, BetterForm):
     def clean_address2(self):
         f = self.cleaned_data["address2"]
         if self.cleaned_data.get("same_as_billing"):
-            return self.cleaned_data["billing_address2"]
+            return self.cleaned_data.get("billing_address2")
         return f
 
     def clean_city(self):
         f = self.cleaned_data["city"]
         if self.cleaned_data.get("same_as_billing"):
-            return self.cleaned_data["billing_city"]
+            return self.cleaned_data.get("billing_city")
         elif not f:
             raise forms.ValidationError("City is required")
         return f
@@ -137,13 +137,13 @@ class ShippingPaymentForm(BillingInfoPaymentForm, BetterForm):
     def clean_region(self):
         f = self.cleaned_data["region"]
         if self.cleaned_data.get("same_as_billing"):
-            return self.cleaned_data["billing_region"]
+            return self.cleaned_data.get("billing_region")
         return f
 
     def clean_postal_code(self):
         f = self.cleaned_data["postal_code"]
         if self.cleaned_data.get("same_as_billing"):
-            return self.cleaned_data["billing_postal_code"]
+            return self.cleaned_data.get("billing_postal_code")
         elif not f:
             raise forms.ValidationError("Postal code is required")
         return f
@@ -151,5 +151,5 @@ class ShippingPaymentForm(BillingInfoPaymentForm, BetterForm):
     def clean_country(self):
         f = self.cleaned_data["country"]
         if self.cleaned_data.get("same_as_billing"):
-            return self.cleaned_data["billing_country"]
+            return self.cleaned_data.get("billing_country")
         return f
