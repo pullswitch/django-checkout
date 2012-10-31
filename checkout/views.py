@@ -307,7 +307,9 @@ class CartCheckoutView(CheckoutView):
         self.order_obj = Order(self.request)
         # clear pre-existing items
         self.order_obj.clear()
-        if CART_ID in self.request.session:
+        if CART_ID in self.request.session and CartModel.objects.filter(
+            pk=self.request.session[CART_ID]
+        ).count():
             cart = CartModel.objects.get(pk=self.request.session[CART_ID])
             for item in cart.item_set.all():
                 try:
