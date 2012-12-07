@@ -166,7 +166,7 @@ class Order:
             total += item.total
         self.order.subtotal = subtotal
         if self.order.discount_amount:
-            total = subtotal - self.order.discount_amount
+            total = float(subtotal) - float(self.order.discount_amount)
             if total < 0:
                 total = 0
         if self.order.tax and not tax_waiver:
