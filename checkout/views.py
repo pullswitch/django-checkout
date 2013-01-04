@@ -515,7 +515,7 @@ def lookup_discount_code(request):
     total = order_obj.total
     order_obj.apply_discount(request.POST.get("discount_code"))
     new_total = order_obj.total
-    amount = total - new_total
+    amount = float(total) - float(new_total)
     ret = {"amount": str(amount), "total": str(new_total)}
     if order_obj.order.discount:
         ret.update({"description": order_obj.order.discount.description})
