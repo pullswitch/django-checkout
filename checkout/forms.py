@@ -1,3 +1,4 @@
+import re
 from decimal import Decimal
 
 from django import forms
@@ -67,9 +68,9 @@ class SimplePaymentForm(forms.Form):
     def __init__(self, *args, **kwargs):
         super(SimplePaymentForm, self).__init__(*args, **kwargs)
         if self.data and self.data.get("token"):
-            del self.fields["card_number"]
-            del self.fields["ccv"]
-            del self.fields["expiration_date"]
+            self.fields["card_number"].required = False
+            self.fields["ccv"].required = False
+            self.fields["expiration_date"].required = False
 
 
 class BillingInfoPaymentForm(BetterForm, SimplePaymentForm):
@@ -184,5 +185,34 @@ class PaymentForm(BillingInfoPaymentForm):
         return code
 
 
-class PaymentSignupForm(BaseSignupForm, PaymentForm):
-    pass
+alnum_re = re.compile(r"^\w+$")
+
+
+class PaymentSignupForm(PaymentForm):
+
+    username = forms.CharField(
+        label=_("Username"),
+        max_length=30,
+        widget=forms.TextInput(),
+        required=True
+    )
+    password = forms.CharField(
+        label=_("Password"),
+        widget=forms.PasswordInput(render_value=False)
+    )
+    password_confirm = forms.CharField(
+        label=_("Password (again)"),
+        widget=forms.PasswordInput(render_value=False)
+    )
+    email = forms.EmailField(widget=forms.TextInput(), required=True)
+
+    def clean_username(self):
+        if not alnum_re.search(self.cleaned_data["username"]):
+            raise forms.ValidationError(_("Usernames can only contain letters, numbers and underscores."))
+        return self.cleaned_data["username"]
+
+    def clean(self):
+        if "password" in self.cleaned_data and "password_confirm" in self.cleaned_data:
+            if self.cleaned_data["password"] != self.cleaned_data["password_confirm"]:
+                raise forms.ValidationError(_("You must type the same password each time."))
+        return self.cleaned_data

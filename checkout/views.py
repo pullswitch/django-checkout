@@ -29,6 +29,35 @@ SignupForm = import_from_string(CHECKOUT["SIGNUP_FORM"])
 ORDER_ID = CHECKOUT["COOKIE_KEY_ORDER"]
 
 
+class OrderMixin(object):
+    """
+    Provides the ability to update & process an order
+    """
+    order_wrapper = None
+    order = None
+    transaction = None
+    processor = payment_module.Processor()
+
+    def get_order_from_request(self, *args, **kwargs):
+        """
+        Set order & transaction from request
+        """
+        self.order_wrapper = Order(self.request)
+        self.order = self.order_wrapper.order
+        try:
+            self.transaction = self.order_wrapper.get_transactions().latest()
+        except:
+            pass
+
+    def get_context_data(self, **kwargs):
+        context = kwargs
+        context.update({
+            "order": self.order,
+            "transaction": self.transaction
+        })
+        return context
+
+
 class CheckoutView(FormView):
 
     """
