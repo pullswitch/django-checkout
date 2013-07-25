@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 setup(
     name = "django-checkout",
-    version = "0.4.5",
+    version = "0.5.0",
     author = "Dave Lowe",
     author_email = "dave@hellopullswitch.com",
     description = "a Django app for handling subscriptions, orders and transactions",
@@ -12,7 +12,7 @@ setup(
     url = "http://github.com/pullswitch/django-checkout",
     packages = find_packages(),
     install_requires = [
-        "django-form-utils==0.2.0",
+        "django-form-utils==0.3.1",
         "pytz"
     ],
     classifiers = [
