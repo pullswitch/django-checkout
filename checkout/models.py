@@ -258,7 +258,9 @@ class Discount(models.Model):
         if user:
             if self.user and user != self.user:
                 return False
-            elif user.orders.filter(discount=self).count() >= self.individual_use_limit:
+            elif user.orders.complete().filter(
+                discount=self
+            ).count() >= self.individual_use_limit:
                 # if user has met the usage limit of this discount
                 return False
         return True
