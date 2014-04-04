@@ -68,7 +68,6 @@ class CheckoutView(FormView, OrderMixin):
     empty_redirect = "home"
     form_class = None
     form_class_signup = None
-    processor = None
     method = "direct"
     success_url = "checkout_confirm"
     messages = {
