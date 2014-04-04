@@ -22,8 +22,6 @@ from checkout import signals
 from checkout.utils import import_from_string
 
 
-
-
 class OrderMixin(object):
     """
     Provides the ability to update & process an order
@@ -82,6 +80,7 @@ class CheckoutView(FormView, OrderMixin):
 
     def __init__(self, *args, **kwargs):
         super(CheckoutView, self).__init__(*args, **kwargs)
+        super(OrderMixin, self).__init__()
         from checkout.settings import CHECKOUT
         self.form_class = import_from_string(CHECKOUT["PAYMENT_FORM"])
         self.form_class_signup = import_from_string(CHECKOUT["SIGNUP_FORM"])
