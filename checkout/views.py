@@ -31,11 +31,12 @@ class OrderMixin(object):
     transaction = None
     processor = None
 
-    def __init__(self):
-        from checkout.settings import CHECKOUT
-        self.cookie_key_order = CHECKOUT["COOKIE_KEY_ORDER"]
-        payment_module = import_module(CHECKOUT["PAYMENT_PROCESSOR"])
-        self.processor = payment_module.Processor()
+    def get_processor(self):
+        if not self.processor:
+            from checkout.settings import CHECKOUT
+            payment_module = import_module(CHECKOUT["PAYMENT_PROCESSOR"])
+            self.processor = payment_module.Processor()
+        return self.processor
 
     def get_order_from_request(self, *args, **kwargs):
         """
@@ -69,6 +70,8 @@ class CheckoutView(FormView, OrderMixin):
     form_class = None
     form_class_signup = None
     method = "direct"
+    processor = None
+    anonymous_checkout = False
     success_url = "checkout_confirm"
     messages = {
         "customer_info_error": {
@@ -79,24 +82,29 @@ class CheckoutView(FormView, OrderMixin):
 
     def __init__(self, *args, **kwargs):
         super(CheckoutView, self).__init__(*args, **kwargs)
-        super(OrderMixin, self).__init__()
-        from checkout.settings import CHECKOUT
+        self.processor = self.get_processor()
+        CHECKOUT = self.get_settings()
         self.form_class = import_from_string(CHECKOUT["PAYMENT_FORM"])
         self.form_class_signup = import_from_string(CHECKOUT["SIGNUP_FORM"])
+        self.anonymous_checkout = CHECKOUT["ANONYMOUS_CHECKOUT"]
+
+    def get_settings(self):
+        from checkout.settings import CHECKOUT
+        return CHECKOUT
 
     def get(self, *args, **kwargs):
         self.order_obj = Order(self.request)
         if not self.order_obj.order.items.count():
             return redirect(self.empty_redirect)
         if (not self.request.user.is_authenticated() and
-            not CHECKOUT["ANONYMOUS_CHECKOUT"]):
+            not self.anonymous_checkout):
             self.form_class = self.form_class_signup
         return super(CheckoutView, self).get(*args, **kwargs)
 
     def post(self, *args, **kwargs):
         self.order_obj = Order(self.request)
         if (not self.request.user.is_authenticated() and
-            not CHECKOUT["ANONYMOUS_CHECKOUT"]):
+            not self.anonymous_checkout):
             self.form_class = self.form_class_signup
         incoming = self.retrieve_item()
 
@@ -170,7 +178,7 @@ class CheckoutView(FormView, OrderMixin):
         self.order_obj.order.save()
 
         if (not self.request.user.is_authenticated() and
-            not CHECKOUT["ANONYMOUS_CHECKOUT"]):
+            not self.anonymous_checkout):
             user = self.create_user(form)
             user = auth.authenticate(
                 username=user.username,
@@ -302,6 +310,8 @@ class SubscribeView(CheckoutView):
     method = "subscription"
 
     def retrieve_item(self):
+        processor = self.get_processor()
+        CHECKOUT = self.get_settings()
         sf = SubscriptionForm(self.request.POST)
         if sf.is_valid() or (
             CHECKOUT["ALLOW_PLAN_CREATION"] and
@@ -318,7 +328,7 @@ class SubscribeView(CheckoutView):
                 plan_opts = CHECKOUT["PLAN_OPTIONS_GENERATOR"](
                     Decimal(self.request.POST.get("custom_amount"))
                 )
-                plan = self.processor.create_plan(**plan_opts)
+                plan = processor.create_plan(**plan_opts)
             if plan:
                 self.order_obj.clear()
                 self.order_obj.add(
@@ -397,6 +407,9 @@ class ConfirmView(TemplateView, OrderMixin):
 
     def post(self, *args, **kwargs):
         self.order_obj = self.get_order_from_request(self.request)
+        self.processor = self.get_processor()
+        CHECKOUT = self.get_settings()
+        self.cookie_key_order = CHECKOUT["COOKIE_KEY_ORDER"]
 
         if not self.order_obj.can_complete():
             return self.invalid_order()
@@ -405,13 +418,13 @@ class ConfirmView(TemplateView, OrderMixin):
             success = True
         elif self.order_obj.order.is_subscription:
             item = self.order_obj.order.items.all()[0]
-            success, data = self.processor.create_subscription(
+            success, data = processor.create_subscription(
                 customer_id=self.transaction.reference_number,
                 plan_id=item.subscription_plan,
                 price=self.transaction.amount
             )
         else:
-            success, data = self.processor.charge(
+            success, data = processor.charge(
                 self.order_obj.total,
                 customer_id=self.transaction.reference_number
             )
@@ -466,6 +479,8 @@ class ConfirmView(TemplateView, OrderMixin):
         pass
 
     def invalid_order(self):
+        CHECKOUT = self.get_settings()
+        self.cookie_key_order = CHECKOUT["COOKIE_KEY_ORDER"]
         if self.order_obj.completed:
             return redirect("checkout_order_details", self.order_obj.pk)
         if self.cookie_key_order in self.request.session:
