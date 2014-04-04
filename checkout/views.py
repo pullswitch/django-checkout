@@ -404,14 +404,14 @@ class ConfirmView(TemplateView, OrderMixin):
     }
 
     def get(self, *args, **kwargs):
-        self.order_obj = self.get_order_from_request(self.request)
-        if not self.order_obj.can_complete():
+        self.order_obj = Order(self.request)
+        if self.order_obj.status != OrderModel.PENDING_PAYMENT:
             return self.invalid_order()
 
         return super(ConfirmView, self).get(*args, **kwargs)
 
     def post(self, *args, **kwargs):
-        self.order_obj = self.get_order_from_request(self.request)
+        self.order_obj = Order(self.request)
         self.transaction = self.get_transaction_from_request(self.request)
         self.processor = self.get_processor()
         CHECKOUT = self.get_settings()
