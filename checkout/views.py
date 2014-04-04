@@ -18,14 +18,11 @@ from django.contrib.auth.models import User
 from checkout.models import Discount, Order as OrderModel, OrderTransaction
 from checkout.order import Order
 from checkout.forms import CustomItemForm, SubscriptionForm
-from checkout.settings import CHECKOUT
 from checkout import signals
 from checkout.utils import import_from_string
 
 
-payment_module = import_module(CHECKOUT["PAYMENT_PROCESSOR"])
-PaymentForm = import_from_string(CHECKOUT["PAYMENT_FORM"])
-SignupForm = import_from_string(CHECKOUT["SIGNUP_FORM"])
+SignupForm = 
 ORDER_ID = CHECKOUT["COOKIE_KEY_ORDER"]
 
 
@@ -36,7 +33,12 @@ class OrderMixin(object):
     order_wrapper = None
     order = None
     transaction = None
-    processor = payment_module.Processor()
+    processor = None
+
+    def __init__(self):
+        from checkout.settings import CHECKOUT
+        payment_module = import_module(CHECKOUT["PAYMENT_PROCESSOR"])
+        self.processor = payment_module.Processor()
 
     def get_order_from_request(self, *args, **kwargs):
         """
@@ -58,7 +60,7 @@ class OrderMixin(object):
         return context
 
 
-class CheckoutView(FormView):
+class CheckoutView(FormView, OrderMixin):
 
     """
     Checkout for a single item (no cart)
@@ -67,9 +69,9 @@ class CheckoutView(FormView):
     template_name = "checkout/form.html"
     template_name_ajax = "checkout/form.html"
     empty_redirect = "home"
-    form_class = PaymentForm
-    form_class_signup = SignupForm
-    processor = payment_module.Processor()
+    form_class = None
+    form_class_signup = None
+    processor = None
     method = "direct"
     success_url = "checkout_confirm"
     messages = {
@@ -78,6 +80,12 @@ class CheckoutView(FormView):
             "text": _("The payment information could not be validated")
         }
     }
+
+    def __init__(self, *args, **kwargs):
+        super(CheckoutView, self).__init__(*args, **kwargs)
+        from checkout.settings import CHECKOUT
+        self.form_class = import_from_string(CHECKOUT["PAYMENT_FORM"])
+        self.form_class_signup = import_from_string(CHECKOUT["SIGNUP_FORM"])
 
     def get(self, *args, **kwargs):
         self.order_obj = Order(self.request)
@@ -102,8 +110,7 @@ class CheckoutView(FormView):
                 # goal: remove payment-related requirements if
                 # no payment is necessary
                 for field in self.form_class.base_fields.keys():
-                    if field in PaymentForm.base_fields.keys():
-                        self.form_class.base_fields[field].required = False
+                    self.form_class.base_fields[field].required = False
 
         return self.post_handler(incoming, *args, **kwargs)
 
@@ -236,7 +243,9 @@ class CheckoutView(FormView):
         return user
 
     def after_signup(self, user, form):
-        signals.user_signed_up.send(sender=SignupForm, user=user, form=form)
+        signals.user_signed_up.send(sender=self.form_class_signup,
+                                    user=user,
+                                    form=form)
 
     def save_customer_info(self, payment_data):
         if self.request.user.is_authenticated():
@@ -366,7 +375,7 @@ class CartCheckoutView(CheckoutView):
         return False
 
 
-class ConfirmView(TemplateView):
+class ConfirmView(TemplateView, OrderMixin):
 
     template_name = "checkout/confirm.html"
     template_name_ajax = "checkout/confirm.html"
@@ -384,24 +393,15 @@ class ConfirmView(TemplateView):
     }
 
     def get(self, *args, **kwargs):
-        self.order_obj = Order(self.request)
+        self.order_obj = self.get_order_from_request(self.request)
         if not self.order_obj.can_complete():
             return self.invalid_order()
-        try:
-            self.transaction = self.order_obj.get_transactions().latest()
-        except:
-            # this may not be acceptable
-            self.transaction = None
 
         return super(ConfirmView, self).get(*args, **kwargs)
 
     def post(self, *args, **kwargs):
-        self.order_obj = Order(self.request)
-        try:
-            self.transaction = self.order_obj.get_transactions().latest()
-        except:
-            # this may not be acceptable
-            self.transaction = None
+        self.order_obj = self.get_order_from_request(self.request)
+
         if not self.order_obj.can_complete():
             return self.invalid_order()
 
@@ -465,14 +465,6 @@ class ConfirmView(TemplateView):
             return redirect(self.get_success_url(self.order_obj.order))
 
         return self.render_to_response(self.get_context_data())
-
-    def get_context_data(self, **kwargs):
-        ctx = kwargs
-        ctx.update({
-            "transaction": self.transaction,
-            "order": self.order_obj.order,
-        })
-        return ctx
 
     def after_order(self):
         pass
