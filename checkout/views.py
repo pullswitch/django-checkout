@@ -38,11 +38,11 @@ class OrderMixin(object):
             self.processor = payment_module.Processor()
         return self.processor
 
-    def get_order_from_request(self, *args, **kwargs):
+    def get_order_from_request(self, request, *args, **kwargs):
         """
         Set order & transaction from request
         """
-        self.order_wrapper = Order(self.request)
+        self.order_wrapper = Order(request)
         self.order = self.order_wrapper.order
         try:
             self.transaction = self.order_wrapper.get_transactions().latest()
