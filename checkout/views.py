@@ -405,7 +405,7 @@ class ConfirmView(TemplateView, OrderMixin):
 
     def get(self, *args, **kwargs):
         self.order_obj = Order(self.request)
-        if self.order_obj.status != OrderModel.PENDING_PAYMENT:
+        if not self.order_obj.can_complete():
             return self.invalid_order()
 
         return super(ConfirmView, self).get(*args, **kwargs)
