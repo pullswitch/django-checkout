@@ -378,7 +378,6 @@ class ConfirmView(TemplateView, OrderMixin):
 
     template_name = "checkout/confirm.html"
     template_name_ajax = "checkout/confirm.html"
-    processor = payment_module.Processor()
     success_url = "checkout_confirm"  # redirects to order page
     messages = {
         "invalid_order": {
