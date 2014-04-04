@@ -1,20 +1,20 @@
 import logging
 
-from django.conf import settings
 from django.utils.translation import ugettext_lazy as _
 
-import stripe
 
 logger = logging.getLogger("checkout.processors.stripe_processor")
-
-# Configure Stripe
-stripe.api_key = settings.STRIPE_SECRET
-PRORATE = getattr(settings, "STRIPE_PRORATE", True)
 
 
 class Processor:
 
     def __init__(self, **kwargs):
+        import stripe
+        from django.conf import settings
+
+        stripe.api_key = settings.STRIPE_SECRET
+        self.proc = stripe
+        self.prorate = getattr(settings, "STRIPE_PRORATE", True)
 
         if kwargs.get("user", None):
             self.user = kwargs.pop("user")
@@ -23,9 +23,9 @@ class Processor:
         # convert our amount to CENTS as integer
         amount = int(amount * 100)
         try:
-            plan = stripe.Plan.retrieve(id)
+            plan = self.proc.Plan.retrieve(id)
         except:
-            plan = stripe.Plan.create(
+            plan = self.proc.Plan.create(
                 amount=amount,
                 interval=interval,
                 name=name,
@@ -37,7 +37,7 @@ class Processor:
         return plan
 
     def create_token(self, number, exp_month, exp_year, cvc, currency=None, **kwargs):
-        return stripe.Token.create(
+        return self.proc.Token.create(
             card={
             "number": number,
             "exp_month": exp_month,
@@ -76,14 +76,14 @@ class Processor:
 
         if customer_id:
             try:
-                customer = stripe.Customer.retrieve(customer_id)
+                customer = self.proc.Customer.retrieve(customer_id)
                 customer.card = token
                 customer.save()
                 return True, customer_id, None, customer
             except:
                 pass
         try:
-            result = stripe.Customer.create(
+            result = self.proc.Customer.create(
                 description="Customer for {0}".format(data["email"]),
                 email=data["email"],
                 card=token
@@ -94,11 +94,11 @@ class Processor:
         return True, result["id"], None, result
 
     def get_customer(self, customer_id):
-        return stripe.Customer.retrieve(customer_id)
+        return self.proc.Customer.retrieve(customer_id)
 
     def delete_customer(self, customer_id):
         try:
-            cu = stripe.Customer.retrieve(customer_id)
+            cu = self.proc.Customer.retrieve(customer_id)
             result = cu.delete()
             return result["deleted"]
         except:
@@ -113,7 +113,7 @@ class Processor:
 
     def get_payment_details(self, token):
         try:
-            return stripe.Token.retrieve(token)
+            return self.proc.Token.retrieve(token)
         except:
             return None
 
@@ -121,7 +121,7 @@ class Processor:
         return card_obj.last4
 
     def get_transaction(self, transaction_id):
-        return stripe.Charge.retrieve(transaction_id)
+        return self.proc.Charge.retrieve(transaction_id)
 
     def charge(self, amount, data=None, customer_id=None, payment_token=None):
 
@@ -131,14 +131,14 @@ class Processor:
         amount = int(amount * 100)
 
         if customer_id:
-            result = stripe.Charge.create(
+            result = self.proc.Charge.create(
                 amount=amount,
                 currency="usd",
                 customer=customer_id
             )
 
         elif payment_token:
-            result = stripe.Charge.create(
+            result = self.proc.Charge.create(
                 amount=amount,
                 currency="usd",
                 card=payment_token
@@ -159,7 +159,7 @@ class Processor:
                 "address_state": data["region"],
                 "address_country": data["country"],
             }
-            result = stripe.Charge.create({
+            result = self.proc.Charge.create({
                 "amount": amount or data.get("amount"),
                 "currency": "usd",
                 "card": card_data,
@@ -173,7 +173,7 @@ class Processor:
 
     def refund(self, reference_id, amount=None):
         try:
-            ch = stripe.Charge.retrieve(reference_id)
+            ch = self.proc.Charge.retrieve(reference_id)
         except:
             False, "Transaction not found"
 
@@ -192,17 +192,17 @@ class Processor:
 
     def create_subscription(self, customer_id, plan_id, **kwargs):
         try:
-            cu = stripe.Customer.retrieve(customer_id)
+            cu = self.proc.Customer.retrieve(customer_id)
         except:
             return False, "No matching customer found"
-        cu.update_subscription(plan=plan_id, prorate=PRORATE)
+        cu.update_subscription(plan=plan_id, prorate=self.prorate)
         return True, cu
 
     can_prerenew = False
 
     def cancel_subscription(self, customer_id):
         try:
-            cu = stripe.Customer.retrieve(customer_id)
+            cu = self.proc.Customer.retrieve(customer_id)
             result = cu.cancel_subscription()
             return result["status"] == "canceled"
         except:

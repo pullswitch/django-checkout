@@ -1,26 +1,26 @@
 import logging
 from decimal import Decimal
 
-from django.conf import settings
-
-import braintree
-
-from checkout.settings import CHECKOUT
 
 logger = logging.getLogger("checkout.processors.braintree_processor")
 
 # Configure Braintree
-braintree.Configuration.configure(
-    braintree.Environment.Production if settings.IS_PROD else braintree.Environment.Sandbox,
-    settings.BRAINTREE_MERCHANT_ID,
-    settings.BRAINTREE_PUBLIC_KEY,
-    settings.BRAINTREE_PRIVATE_KEY
-)
-
 
 class Processor:
 
     def __init__(self, **kwargs):
+        import braintree
+        from checkout.settings import CHECKOUT
+        from django.conf import settings
+
+        braintree.Configuration.configure(
+            braintree.Environment.Production if settings.IS_PROD else braintree.Environment.Sandbox,
+            settings.BRAINTREE_MERCHANT_ID,
+            settings.BRAINTREE_PUBLIC_KEY,
+            settings.BRAINTREE_PRIVATE_KEY
+        )
+
+        self.proc = braintree
 
         if kwargs.get("user", None):
             self.user = kwargs.pop("user")
@@ -54,9 +54,9 @@ class Processor:
 
         if customer_id:
             try:
-                cust = braintree.Customer.find(customer_id)
+                cust = self.proc.Customer.find(customer_id)
                 if credit_card_data:
-                    result = braintree.Customer.update(customer_id, {
+                    result = self.proc.Customer.update(customer_id, {
                         "credit_card": credit_card_data
                     })
                 else:
@@ -65,7 +65,7 @@ class Processor:
                 pass
         try:
             if not result:
-                result = braintree.Customer.create({
+                result = self.proc.Customer.create({
                     "first_name": data.get("first_name") or data.get("billing_first_name"),
                     "last_name": data.get("last_name") or data.get("billing_last_name"),
                     "company": data.get("organization") or data.get("company"),
@@ -87,10 +87,10 @@ class Processor:
         return result.is_success, customer_id, error, result
 
     def get_customer(self, customer_id):
-        return braintree.Customer.find(customer_id)
+        return self.proc.Customer.find(customer_id)
 
     def delete_customer(self, customer_id):
-        result = braintree.Customer.delete(customer_id)
+        result = self.proc.Customer.delete(customer_id)
         return result.is_success
 
     def get_customer_card(self, customer_id):
@@ -105,7 +105,7 @@ class Processor:
 
     def get_payment_details(self, payment_token):
         try:
-            return braintree.CreditCard.find(payment_token)
+            return self.proc.CreditCard.find(payment_token)
         except:
             return None
 
@@ -113,7 +113,7 @@ class Processor:
         return card_obj.last_4
 
     def get_transaction(self, transaction_id):
-        return braintree.Transaction.find(transaction_id)
+        return self.proc.Transaction.find(transaction_id)
 
     def handle_billing_info(self, data, customer_id=None, payment_token=None, **kwargs):
 
@@ -135,7 +135,7 @@ class Processor:
             if payment_token:
                 # Update customer, credit card & billing address
                 # http://www.braintreepayments.com/docs/python/customers/update#update_customer_credit_card_and_billing_address
-                result = braintree.Customer.update(customer_id, {
+                result = self.proc.Customer.update(customer_id, {
                     "email": data["email"],
                     "phone": data["phone_number"],
                     "credit_card": {
@@ -161,7 +161,7 @@ class Processor:
                 })
 
             else:
-                result = braintree.Customer.update(customer_id, {
+                result = self.proc.Customer.update(customer_id, {
                     "email": data["email"],
                     "phone": data["phone_number"],
                     "credit_card": {
@@ -189,7 +189,7 @@ class Processor:
         if not result:
             # store transaction info in braintree
 
-            result = braintree.Transaction.sale({
+            result = self.proc.Transaction.sale({
                 "amount": data.get("amount") or kwargs.get("amount"),
                 "credit_card": {
                     "number": data.get("card_number"),
@@ -237,11 +237,11 @@ class Processor:
         result = None
 
         if reference_id:
-            result = braintree.Transaction.submit_for_settlement(reference_id)
+            result = self.proc.Transaction.submit_for_settlement(reference_id)
 
         elif data:
             formatted_expire_date = data.get("expiration_date").strftime("%m/%Y")
-            result = braintree.Transaction.sale({
+            result = self.proc.Transaction.sale({
                 "amount": amount or data.get("amount"),
                 "credit_card": {
                     "number": data.get("card_number"),
@@ -263,7 +263,7 @@ class Processor:
 
     def charge(self, amount, customer_id=None, payment_method_token=None):
         if payment_method_token:
-            result = braintree.Transaction.sale({
+            result = self.proc.Transaction.sale({
                 "amount": amount,
                 "payment_method_token": payment_method_token,
                 "options": {
@@ -271,7 +271,7 @@ class Processor:
                 }
             })
         elif customer_id:
-            result = braintree.Transaction.sale({
+            result = self.proc.Transaction.sale({
                 "amount": amount,
                 "customer_id": customer_id,
                 "payment_method_token": payment_method_token,
@@ -290,12 +290,12 @@ class Processor:
         return result.is_success, result
 
     def refund(self, reference_id, amount=None):
-        transaction = braintree.Transaction.find(reference_id)
+        transaction = self.proc.Transaction.find(reference_id)
         if transaction:
             if amount:
-                    transaction = braintree.Transaction.refund(transaction.id, amount)
+                    transaction = self.proc.Transaction.refund(transaction.id, amount)
             else:
-                result = braintree.Transaction.refund(transaction.id)
+                result = self.proc.Transaction.refund(transaction.id)
 
             if not result.is_success:
                 errors = result.errors.deep_errors
@@ -305,7 +305,7 @@ class Processor:
         return False, "Transaction could not be found"
 
     def void(self, reference_id):
-        result = braintree.Transaction.void(reference_id)
+        result = self.proc.Transaction.void(reference_id)
 
         if not result.is_success:
             errors = result.errors.deep_errors
@@ -321,22 +321,22 @@ class Processor:
             "cvv": data["ccv"]
         }
 
-        result = braintree.CreditCard.update(payment_token, credit_card_data)
+        result = self.proc.CreditCard.update(payment_token, credit_card_data)
 
         return result.is_success or False
 
     def create_subscription(self, customer_id, plan_id, price, start_date=None):
-        customer = braintree.Customer.find(customer_id)
+        customer = self.proc.Customer.find(customer_id)
         token = customer.credit_cards[0].token
         # could finding a customer's subscription BE any more awkward?!
-        search_results = braintree.Transaction.search(
-            braintree.TransactionSearch.customer_id == customer_id
+        search_results = self.proc.Transaction.search(
+            self.proc.TransactionSearch.customer_id == customer_id
         )
         existing = None
         for result in search_results.items:
             if result.subscription_id:
-                sub = braintree.Subscription.find(result.subscription_id)
-                if sub.status is braintree.Subscription.Status.Active:
+                sub = self.proc.Subscription.find(result.subscription_id)
+                if sub.status is self.proc.Subscription.Status.Active:
                     existing = sub.id
                     continue
         if existing and CHECKOUT["ALLOW_PRERENEWAL"]:
@@ -349,7 +349,7 @@ class Processor:
         }
         if start_date:
             data["first_billing_date"] = start_date
-        sub_result = braintree.Subscription.create(data)
+        sub_result = self.proc.Subscription.create(data)
         if not sub_result.is_success:
             if sub_result.errors.deep_errors:
                 return False, ", ".join(sub_result.errors.deep_errors)
@@ -360,20 +360,20 @@ class Processor:
     can_prerenew = True
 
     def get_subscription(self, customer_id, status="active"):
-        search_results = braintree.Transaction.search(
-            braintree.TransactionSearch.customer_id == customer_id
+        search_results = self.proc.Transaction.search(
+            self.proc.TransactionSearch.customer_id == customer_id
         )
         for result in search_results.items:
             if result.subscription_id:
-                sub = braintree.Subscription.find(result.subscription_id)
+                sub = self.proc.Subscription.find(result.subscription_id)
                 if status != "active" or sub.status == "Active":
                     return sub
         return None
 
     def extend_subscription(self, subscription_id, amount, discount_code, billing_cycles=1):
-        sub = braintree.Subscription.find(subscription_id)
+        sub = self.proc.Subscription.find(subscription_id)
         if not sub.discounts:
-            update_result = braintree.Subscription.update(subscription_id, {
+            update_result = self.proc.Subscription.update(subscription_id, {
                 "price": amount,
                 "discounts": {
                     "add": [
@@ -387,7 +387,7 @@ class Processor:
                 }
             })
         else:
-            update_result = braintree.Subscription.update(subscription_id, {
+            update_result = self.proc.Subscription.update(subscription_id, {
                 "price": amount,
                 "discounts": {
                     "update": [
@@ -402,5 +402,5 @@ class Processor:
         return update_result
 
     def cancel_subscription(self, subscription_id):
-        result = braintree.Subscription.cancel(subscription_id)
+        result = self.proc.Subscription.cancel(subscription_id)
         return result.is_success
