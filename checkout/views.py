@@ -43,17 +43,22 @@ class OrderMixin(object):
         Set order & transaction from request
         """
         self.order_wrapper = Order(request)
-        self.order = self.order_wrapper.order
+        return self.order_wrapper.order
+
+    def get_transaction_from_request(self, request):
+        self.order_wrapper = Order(request)
         try:
-            self.transaction = self.order_wrapper.get_transactions().latest()
+            return self.order_wrapper.get_transactions().latest()
         except:
             pass
+
+        return None
 
     def get_context_data(self, **kwargs):
         context = kwargs
         context.update({
-            "order": self.order,
-            "transaction": self.transaction
+            "order": self.get_order_from_request(self.request),
+            "transaction": self.get_transaction_from_request(self.request)
         })
         return context
 
@@ -407,6 +412,7 @@ class ConfirmView(TemplateView, OrderMixin):
 
     def post(self, *args, **kwargs):
         self.order_obj = self.get_order_from_request(self.request)
+        self.transaction = self.get_transaction_from_request(self.request)
         self.processor = self.get_processor()
         CHECKOUT = self.get_settings()
         self.cookie_key_order = CHECKOUT["COOKIE_KEY_ORDER"]
