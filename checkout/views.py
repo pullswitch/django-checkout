@@ -22,8 +22,6 @@ from checkout import signals
 from checkout.utils import import_from_string
 
 
-SignupForm = 
-ORDER_ID = CHECKOUT["COOKIE_KEY_ORDER"]
 
 
 class OrderMixin(object):
@@ -37,6 +35,7 @@ class OrderMixin(object):
 
     def __init__(self):
         from checkout.settings import CHECKOUT
+        self.cookie_key_order = CHECKOUT["COOKIE_KEY_ORDER"]
         payment_module = import_module(CHECKOUT["PAYMENT_PROCESSOR"])
         self.processor = payment_module.Processor()
 
@@ -457,8 +456,8 @@ class ConfirmView(TemplateView, OrderMixin):
                 sender=ConfirmView,
                 order=self.order_obj.order
             )
-            if ORDER_ID in self.request.session:
-                del self.request.session[ORDER_ID]
+            if self.cookie_key_order in self.request.session:
+                del self.request.session[self.cookie_key_order]
 
             self.after_order()
 
@@ -472,8 +471,8 @@ class ConfirmView(TemplateView, OrderMixin):
     def invalid_order(self):
         if self.order_obj.completed:
             return redirect("checkout_order_details", self.order_obj.pk)
-        if ORDER_ID in self.request.session:
-            del self.request.session[ORDER_ID]
+        if self.cookie_key_order in self.request.session:
+            del self.request.session[self.cookie_key_order]
         messages.add_message(
             self.request,
             self.messages["invalid_order"]["level"],
