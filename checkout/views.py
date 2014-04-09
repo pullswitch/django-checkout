@@ -269,6 +269,7 @@ class CheckoutView(FormView, OrderMixin):
             payment_data,
             customer_id=self.order_obj.order.customer_id
         )
+        print error, reference_id
 
         signals.post_create_customer.send(
             sender=None,
@@ -313,6 +314,10 @@ class CheckoutView(FormView, OrderMixin):
 class SubscribeView(CheckoutView):
 
     method = "subscription"
+
+    def get_settings(self):
+        from checkout.settings import CHECKOUT
+        return CHECKOUT
 
     def retrieve_item(self):
         processor = self.get_processor()
@@ -410,6 +415,18 @@ class ConfirmView(TemplateView, OrderMixin):
 
         return super(ConfirmView, self).get(*args, **kwargs)
 
+    def get_context_data(self):
+        context = super(ConfirmView, self).get_context_data()
+        context.update({
+            "order": self.get_order_from_request(self.request),
+            "transaction": self.get_transaction_from_request(self.request)
+        })
+        return context
+
+    def get_settings(self):
+        from checkout.settings import CHECKOUT
+        return CHECKOUT
+
     def post(self, *args, **kwargs):
         self.order_obj = Order(self.request)
         self.transaction = self.get_transaction_from_request(self.request)
@@ -424,13 +441,13 @@ class ConfirmView(TemplateView, OrderMixin):
             success = True
         elif self.order_obj.order.is_subscription:
             item = self.order_obj.order.items.all()[0]
-            success, data = processor.create_subscription(
+            success, data = self.processor.create_subscription(
                 customer_id=self.transaction.reference_number,
                 plan_id=item.subscription_plan,
                 price=self.transaction.amount
             )
         else:
-            success, data = processor.charge(
+            success, data = self.processor.charge(
                 self.order_obj.total,
                 customer_id=self.transaction.reference_number
             )
