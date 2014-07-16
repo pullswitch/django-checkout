@@ -439,6 +439,7 @@ class ConfirmView(TemplateView, OrderMixin):
 
         if self.order_obj.total == 0:
             success = True
+            data = None
         elif self.order_obj.order.is_subscription:
             item = self.order_obj.order.items.all()[0]
             success, data = self.processor.create_subscription(
@@ -474,6 +475,7 @@ class ConfirmView(TemplateView, OrderMixin):
                     sender=ConfirmView,
                     order=self.order_obj.order,
                     transaction=self.transaction,
+                    data=data,
                     request=self.request
                 )
             else:
@@ -481,6 +483,7 @@ class ConfirmView(TemplateView, OrderMixin):
                     sender=ConfirmView,
                     order=self.order_obj.order,
                     transaction=self.transaction,
+                    data=data,
                     request=self.request
                 )
 
