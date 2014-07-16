@@ -325,22 +325,30 @@ class Processor:
 
         return result.is_success or False
 
-    def create_subscription(self, customer_id, plan_id, price, start_date=None):
-        customer = self.proc.Customer.find(customer_id)
-        token = customer.credit_cards[0].token
-        # could finding a customer's subscription BE any more awkward?!
-        search_results = self.proc.Transaction.search(
-            self.proc.TransactionSearch.customer_id == customer_id
-        )
-        existing = None
-        for result in search_results.items:
-            if result.subscription_id:
-                sub = self.proc.Subscription.find(result.subscription_id)
-                if sub.status is self.proc.Subscription.Status.Active:
-                    existing = sub.id
-                    continue
-        if existing and CHECKOUT["ALLOW_PRERENEWAL"]:
-            return self.extend_subscription(existing, price, CHECKOUT["PRERENEWAL_DISCOUNT_CODE"])
+    def create_subscription(self, customer_id, plan_id, price,
+                            start_date=None, subscription_id=None, token=None):
+        if not subscription_id:
+            if not token:
+                customer = self.proc.Customer.find(customer_id)
+                token = customer.credit_cards[0].token
+            # could finding a customer's subscription BE any more awkward?!
+            search_results = self.proc.Transaction.search(
+                self.proc.TransactionSearch.customer_id == customer_id
+            )
+            for result in search_results.items:
+                if result.subscription_id:
+                    sub = self.proc.Subscription.find(result.subscription_id)
+                    if sub.status is self.proc.Subscription.Status.Active:
+                        subscription_id = sub.id
+                        continue
+
+        if subscription_id and CHECKOUT["ALLOW_PRERENEWAL"]:
+            return self.extend_subscription(subscription_id, price,
+                        CHECKOUT["PRERENEWAL_DISCOUNT_CODE"])
+
+        if not token:
+            customer = self.proc.Customer.find(customer_id)
+            token = customer.credit_cards[0].token
 
         data = {
             "payment_method_token": token,
@@ -359,14 +367,20 @@ class Processor:
 
     can_prerenew = True
 
-    def get_subscription(self, customer_id, status="active"):
+    def get_subscription(self, customer_id=None, subscription_id=None, status="any"):
+        if not customer_id and not subscription_id:
+            return
+
+        if subscription_id:
+            return self.proc.Subscription.find(subscription_id)
+
         search_results = self.proc.Transaction.search(
             self.proc.TransactionSearch.customer_id == customer_id
         )
         for result in search_results.items:
             if result.subscription_id:
                 sub = self.proc.Subscription.find(result.subscription_id)
-                if status != "active" or sub.status == "Active":
+                if status == "any" or sub.status == status:
                     return sub
         return None
 
