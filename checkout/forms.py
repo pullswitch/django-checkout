@@ -86,8 +86,8 @@ class BillingInfoPaymentForm(BetterForm, SimplePaymentForm):
     billing_postal_code = forms.CharField(label=_("Zip/Postal Code"), max_length=15)
 
     if "django_countries" in settings.INSTALLED_APPS:
-        from django_countries.countries import COUNTRIES
-        billing_country = forms.ChoiceField(choices=COUNTRIES)
+        from django_countries import countries import
+        billing_country = forms.ChoiceField(choices=countries)
     else:
         billing_country = forms.CharField(label=_("Country"), max_length=50)
 
